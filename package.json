@@ -6,14 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:cf": "npm run build && npx wrangler deploy",
+    "deploy:cf:pages": "npm run build && npx wrangler pages deploy dist"
   },
   "dependencies": {
+    "@lichess-org/chessground": "^10.0.2",
     "chess.js": "^1.4.0",
-    "chessground": "^9.2.1",
     "stockfish": "^18.0.5"
   },
   "devDependencies": {
-    "vite": "^7.1.0"
+    "vite": "^7.1.0",
+    "vite-plugin-pwa": "^1.2.0"
   }
 }
