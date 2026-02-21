@@ -2,6 +2,8 @@
 
 Blindfold training web app built with Lichess `chessground`.
 
+## https://blindfold-chess.pages.dev/
+
 ## Features
 
 - Lichess board component (`chessground`)
