@@ -202,7 +202,7 @@ app.innerHTML = `
 
       <div id="movesPanel" class="moves-panel">
         <button id="toggleMovesBtn" type="button">Show Moves</button>
-        <div class="review-nav">
+        <div id="reviewNav" class="review-nav">
           <button id="reviewPrevBtn" type="button">Prev</button>
           <button id="reviewNextBtn" type="button">Next</button>
         </div>
@@ -278,6 +278,7 @@ const elements = {
   lastMoveRow: document.getElementById('lastMoveRow'),
   lastMoveText: document.getElementById('lastMoveText'),
   toggleMovesBtn: document.getElementById('toggleMovesBtn'),
+  reviewNav: document.getElementById('reviewNav'),
   reviewPrevBtn: document.getElementById('reviewPrevBtn'),
   reviewNextBtn: document.getElementById('reviewNextBtn'),
   movesPanel: document.getElementById('movesPanel'),
@@ -841,6 +842,11 @@ function applySettingsToUi() {
 
 function applyTheme() {
   document.body.classList.toggle('theme-dark', state.darkMode);
+}
+
+function syncViewModeClasses() {
+  const isDefaultGameView = state.sessionMode === 'game';
+  document.body.classList.toggle('game-default-view', isDefaultGameView);
 }
 
 const stockfishState = {
@@ -3586,6 +3592,27 @@ function updateMoveAssistVisibility() {
   elements.moveAssist.classList.toggle('is-popup-open', visible);
 }
 
+function applyRuntimeLayoutOverrides() {
+  const portrait = window.matchMedia('(orientation: portrait)').matches;
+  if (portrait) {
+    elements.reviewNav.style.setProperty('margin-top', '2rem', 'important');
+    elements.reviewPrevBtn.style.setProperty('min-height', '1.5rem', 'important');
+    elements.reviewNextBtn.style.setProperty('min-height', '1.5rem', 'important');
+    elements.reviewPrevBtn.style.setProperty('padding-top', '0.5rem', 'important');
+    elements.reviewNextBtn.style.setProperty('padding-top', '0.5rem', 'important');
+    elements.reviewPrevBtn.style.setProperty('padding-bottom', '0.4rem', 'important');
+    elements.reviewNextBtn.style.setProperty('padding-bottom', '0.4rem', 'important');
+    return;
+  }
+  elements.reviewNav.style.removeProperty('margin-top');
+  elements.reviewPrevBtn.style.removeProperty('min-height');
+  elements.reviewNextBtn.style.removeProperty('min-height');
+  elements.reviewPrevBtn.style.removeProperty('padding-top');
+  elements.reviewNextBtn.style.removeProperty('padding-top');
+  elements.reviewPrevBtn.style.removeProperty('padding-bottom');
+  elements.reviewNextBtn.style.removeProperty('padding-bottom');
+}
+
 function isMobileTouchDevice() {
   return window.matchMedia('(pointer: coarse)').matches;
 }
@@ -3846,6 +3873,7 @@ function afterAnyMove() {
 }
 
 function updateAll() {
+  syncViewModeClasses();
   updateBoard();
   updateMovesList();
   updateLastMove();
@@ -3853,6 +3881,7 @@ function updateAll() {
   updateBlindPanel();
   updateMainControlsVisibility();
   updateReviewControls();
+  applyRuntimeLayoutOverrides();
   updateStatus();
   refreshVoiceListeningState();
 }
@@ -4129,6 +4158,10 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !elements.configModal.hidden) {
     closeConfigModal();
   }
+});
+
+window.addEventListener('resize', () => {
+  applyRuntimeLayoutOverrides();
 });
 
 window.addEventListener('pointerdown', () => {
