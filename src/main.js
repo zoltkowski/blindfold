@@ -41,7 +41,7 @@ app.innerHTML = `
           Board View Mode
           <select id="displayMode">
             <option value="normal-pieces">Normal Pieces</option>
-            <option value="same-pieces">Same Color Pieces (both white)</option>
+            <option value="same-pieces">Same Color Pieces</option>
             <option value="different-disks">Different Color Disks</option>
             <option value="same-disks">Same Color Disks</option>
             <option value="no-pieces">No Pieces</option>
@@ -89,7 +89,7 @@ app.innerHTML = `
             </label>
             <label class="checkbox-row">
               <input id="speakCheck" type="checkbox" />
-              Speak Check
+              Speak Checks
             </label>
             <label class="checkbox-row">
               <input id="figurineNotation" type="checkbox" checked />
@@ -102,6 +102,10 @@ app.innerHTML = `
             <label class="checkbox-row">
               <input id="puzzleAutoOpponent" type="checkbox" checked />
               Auto-play opponent moves
+            </label>
+            <label class="checkbox-row">
+              <input id="darkMode" type="checkbox" />
+              Dark Mode
             </label>
             <label>
               Puzzle Difficulty
@@ -246,6 +250,7 @@ const elements = {
   speakCheck: document.getElementById('speakCheck'),
   figurineNotation: document.getElementById('figurineNotation'),
   showBlindDests: document.getElementById('showBlindDests'),
+  darkMode: document.getElementById('darkMode'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
   blindQuestionCount: document.getElementById('blindQuestionCount'),
@@ -458,6 +463,7 @@ const state = {
   revealPosition: false,
   movesVisible: false,
   showBlindDests: true,
+  darkMode: false,
   blindClickFrom: null,
   voiceSticky: true,
   voiceMode: false,
@@ -760,6 +766,7 @@ function writeSettings() {
     speakCheck: state.speakCheck,
     figurineNotation: elements.figurineNotation.checked,
     showBlindDests: state.showBlindDests,
+    darkMode: state.darkMode,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleDifficulty: state.puzzleDifficulty,
     blindQuestionCount: state.blindQuestionCount
@@ -802,6 +809,9 @@ function loadSettingsIntoState() {
   if (typeof saved.showBlindDests === 'boolean') {
     state.showBlindDests = saved.showBlindDests;
   }
+  if (typeof saved.darkMode === 'boolean') {
+    state.darkMode = saved.darkMode;
+  }
 }
 
 function applySettingsToUi() {
@@ -813,6 +823,7 @@ function applySettingsToUi() {
   elements.speakCheck.checked = state.speakCheck;
   elements.voiceSticky.checked = state.voiceSticky;
   elements.showBlindDests.checked = state.showBlindDests;
+  elements.darkMode.checked = state.darkMode;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
@@ -822,6 +833,11 @@ function applySettingsToUi() {
     elements.speakComputer.checked = !!saved.speakComputer;
     elements.figurineNotation.checked = saved.figurineNotation !== false;
   }
+  applyTheme();
+}
+
+function applyTheme() {
+  document.body.classList.toggle('theme-dark', state.darkMode);
 }
 
 const stockfishState = {
@@ -856,6 +872,7 @@ function stopStockfishWorker() {
 
 const ground = Chessground(elements.board, {
   orientation: 'white',
+  coordinates: false,
   movable: {
     free: false,
     color: 'white',
@@ -3822,6 +3839,12 @@ elements.showBlindDests.addEventListener('change', () => {
   writeSettings();
 });
 
+elements.darkMode.addEventListener('change', () => {
+  state.darkMode = elements.darkMode.checked;
+  applyTheme();
+  writeSettings();
+});
+
 elements.engineStrength.addEventListener('input', () => {
   state.stockfishElo = Number(elements.engineStrength.value);
   elements.strengthValue.textContent = String(state.stockfishElo);
@@ -3966,6 +3989,13 @@ window.addEventListener('beforeunload', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+  const key = event.key.toLowerCase();
+  const isRefreshShortcut = key === 'f5'
+    || (key === 'r' && (event.ctrlKey || event.metaKey));
+  if (isRefreshShortcut) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === 'Escape' && !elements.configModal.hidden) {
     closeConfigModal();
   }
