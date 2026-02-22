@@ -38,7 +38,8 @@ app.innerHTML = `
             <option value="same-pieces">Same Color Pieces</option>
             <option value="different-disks">Different Color Disks</option>
             <option value="same-disks">Same Color Disks</option>
-            <option value="no-pieces">No Pieces</option>
+            <option value="no-pieces">No Pieces, Move Marks</option>
+            <option value="no-pieces-no-marks">No Pieces, No Move Marks</option>
             <option value="no-board">No Board</option>
             <option value="white-only">Show White, Hide Black</option>
             <option value="black-only">Show Black, Hide White</option>
@@ -183,7 +184,10 @@ app.innerHTML = `
             </div>
           </div>
         </form>
-        <button id="voiceBtn" type="button">Voice: Off</button>
+        <div class="voice-controls">
+          <button id="voiceOnceBtn" type="button">Listen Once</button>
+          <button id="voiceStickyBtn" type="button">Voice: Off</button>
+        </div>
         <div id="voiceStatus" class="muted"></div>
       </div>
 
@@ -266,7 +270,8 @@ const elements = {
   moveInput: document.getElementById('moveInput'),
   clearMoveInputBtn: document.getElementById('clearMoveInputBtn'),
   moveAssist: document.getElementById('moveAssist'),
-  voiceBtn: document.getElementById('voiceBtn'),
+  voiceOnceBtn: document.getElementById('voiceOnceBtn'),
+  voiceStickyBtn: document.getElementById('voiceStickyBtn'),
   voiceStatus: document.getElementById('voiceStatus'),
   statusRow: document.getElementById('statusRow'),
   statusText: document.getElementById('statusText'),
@@ -456,6 +461,7 @@ const state = {
   blindClickFrom: null,
   voiceSticky: true,
   voiceMode: false,
+  voiceOneShot: false,
   voiceListening: false,
   speaking: false,
   engineThinking: false,
@@ -929,7 +935,7 @@ function transformPiecesForDisplay(realPieces) {
   }
 
   const transformed = new Map();
-  if (state.displayMode === 'no-pieces') {
+  if (state.displayMode === 'no-pieces' || state.displayMode === 'no-pieces-no-marks') {
     return transformed;
   }
 
@@ -967,7 +973,9 @@ function updateBoard() {
   elements.board.dataset.reveal = String(state.revealPosition);
   const boardHidden = (state.sessionMode === 'blind-puzzles' && !state.revealPosition)
     || (state.displayMode === 'no-board' && !state.revealPosition);
+  const suppressVisualMarks = shouldSuppressVisualMarks();
   elements.boardShell.classList.toggle('is-hidden', boardHidden);
+  elements.boardShell.classList.toggle('is-blind-hidden', state.sessionMode === 'blind-puzzles' && boardHidden);
   syncRevealButtonUi();
 
   const boardGame = getBoardGame();
@@ -979,9 +987,7 @@ function updateBoard() {
     : new Map(Object.entries(transformed ?? {}));
 
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
-  const boardOrientation = (state.sessionMode === 'puzzle' && state.puzzle)
-    ? (state.puzzle.playerColor === 'b' ? 'black' : 'white')
-    : state.boardOrientation;
+  const boardOrientation = state.boardOrientation;
   const movableColor = state.sessionMode === 'puzzle'
     ? undefined
     : (reviewLocked
@@ -993,14 +999,14 @@ function updateBoard() {
     orientation: boardOrientation,
     turnColor,
     highlight: {
-      lastMove: true,
-      check: true,
-      custom: blindSourceHighlightMap()
+      lastMove: !suppressVisualMarks,
+      check: !suppressVisualMarks,
+      custom: suppressVisualMarks ? new Map() : blindSourceHighlightMap()
     },
     movable: {
       free: false,
       color: boardInputEnabled ? movableColor : undefined,
-      showDests: shouldShowAnyMoveDots(),
+      showDests: !suppressVisualMarks && shouldShowAnyMoveDots(),
       dests: (state.sessionMode === 'puzzle' || reviewLocked) ? new Map() : toDests(boardGame),
       events: {
         after: onBoardMove
@@ -1013,11 +1019,20 @@ function updateBoard() {
     selectable: {
       enabled: state.sessionMode !== 'puzzle' && !reviewLocked && boardInputEnabled
     },
-    check: boardGame.inCheck(),
-    lastMove: lastMoveSquares(boardGame),
+    check: suppressVisualMarks ? false : boardGame.inCheck(),
+    lastMove: suppressVisualMarks ? undefined : lastMoveSquares(boardGame),
     pieces
   });
   syncBlindClickDots();
+}
+
+function shouldSuppressVisualMarks() {
+  if (state.revealPosition) {
+    return false;
+  }
+  return state.displayMode === 'no-board'
+    || state.displayMode === 'no-pieces-no-marks'
+    || state.sessionMode === 'blind-puzzles';
 }
 
 function syncRevealButtonUi() {
@@ -1042,7 +1057,7 @@ function isBlindClickInputActive() {
   if (state.revealPosition) {
     return false;
   }
-  if (state.displayMode === 'no-pieces') {
+  if (state.displayMode === 'no-pieces' || state.displayMode === 'no-pieces-no-marks') {
     return true;
   }
   if (state.displayMode === 'white-only' && state.userColor === 'black') {
@@ -1055,11 +1070,11 @@ function isBlindClickInputActive() {
 }
 
 function shouldShowAnyMoveDots() {
-  return state.showBlindDests && isBlindClickInputActive();
+  return !shouldSuppressVisualMarks() && state.showBlindDests && isBlindClickInputActive();
 }
 
 function blindSourceHighlightMap() {
-  if (!isBlindClickInputActive() || !state.blindClickFrom) {
+  if (shouldSuppressVisualMarks() || !isBlindClickInputActive() || !state.blindClickFrom) {
     return new Map();
   }
   return new Map([[state.blindClickFrom, 'blind-click-source']]);
@@ -1067,10 +1082,11 @@ function blindSourceHighlightMap() {
 
 function clearBlindClickSelection() {
   state.blindClickFrom = null;
+  const suppressVisualMarks = shouldSuppressVisualMarks();
   ground.set({
     highlight: {
-      lastMove: true,
-      check: true,
+      lastMove: !suppressVisualMarks,
+      check: !suppressVisualMarks,
       custom: new Map()
     }
   });
@@ -1079,14 +1095,15 @@ function clearBlindClickSelection() {
 }
 
 function syncBlindClickDots() {
+  const suppressVisualMarks = shouldSuppressVisualMarks();
   ground.set({
     highlight: {
-      lastMove: true,
-      check: true,
-      custom: blindSourceHighlightMap()
+      lastMove: !suppressVisualMarks,
+      check: !suppressVisualMarks,
+      custom: suppressVisualMarks ? new Map() : blindSourceHighlightMap()
     }
   });
-  if (!isBlindClickInputActive()) {
+  if (suppressVisualMarks || !isBlindClickInputActive()) {
     state.blindClickFrom = null;
     ground.selectSquare(null);
     ground.setAutoShapes([]);
@@ -1651,6 +1668,7 @@ async function loadLichessPuzzle() {
     }
     state.displayMode = 'normal-pieces';
     elements.displayMode.value = state.displayMode;
+    state.boardOrientation = state.puzzle.playerColor === 'b' ? 'black' : 'white';
     state.puzzleViewIndex = contextStartPly;
     state.reviewPly = null;
 
@@ -2408,7 +2426,7 @@ function startPositionExercise() {
   updateAll();
   elements.statusText.textContent = ex.task;
   speakPositionTask(ex.task);
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function speakGameTask(exercise) {
@@ -2466,7 +2484,7 @@ function startGameExercise() {
   state.game.load(ex.fen);
   updateAll();
   speakGameTask(ex);
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function maybeMarkPositionSolved() {
@@ -2544,9 +2562,10 @@ function startSquareColors() {
   state.blindPuzzles.mode = 'square-colors';
   state.blindPuzzles.running = true;
   state.blindPuzzles.total = state.blindQuestionCount;
+  updateAll();
   startBlindPuzzleTimer();
   askNextSquareColorQuestion();
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function startBishopMovements() {
@@ -2559,9 +2578,10 @@ function startBishopMovements() {
   state.blindPuzzles.mode = 'bishop-movements';
   state.blindPuzzles.running = true;
   state.blindPuzzles.total = state.blindQuestionCount;
+  updateAll();
   startBlindPuzzleTimer();
   askNextBishopQuestion();
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function startKnightMovements() {
@@ -2574,9 +2594,10 @@ function startKnightMovements() {
   state.blindPuzzles.mode = 'knight-movements';
   state.blindPuzzles.running = true;
   state.blindPuzzles.total = state.blindQuestionCount;
+  updateAll();
   startBlindPuzzleTimer();
   askNextKnightQuestion();
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function startCheckPuzzle() {
@@ -2589,9 +2610,10 @@ function startCheckPuzzle() {
   state.blindPuzzles.mode = 'check';
   state.blindPuzzles.running = true;
   state.blindPuzzles.total = state.blindQuestionCount;
+  updateAll();
   startBlindPuzzleTimer();
   askNextCheckQuestion();
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function startKRookMatting() {
@@ -2611,7 +2633,7 @@ function startKRookMatting() {
   state.game = game;
   updateAll();
   elements.statusText.textContent = 'K+R vs K started. Mate black.';
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function startKQueenMatting() {
@@ -2631,7 +2653,7 @@ function startKQueenMatting() {
   state.game = game;
   updateAll();
   elements.statusText.textContent = 'K+Q vs K started. Mate black.';
-  setVoiceMode(true);
+  setVoiceMode(false);
 }
 
 function nextPuzzleMoveText() {
@@ -3539,9 +3561,14 @@ function updateStatus() {
 }
 
 function updateVoiceUi() {
-  elements.voiceBtn.textContent = state.voiceMode ? 'Voice: On' : 'Voice: Off';
-  elements.voiceBtn.classList.toggle('is-on', state.voiceMode);
-  elements.moveInputs.classList.toggle('voice-active', state.voiceMode);
+  const stickyOn = state.voiceMode && !state.voiceOneShot;
+  const oneShotOn = state.voiceMode && state.voiceOneShot;
+  elements.voiceStickyBtn.textContent = stickyOn ? 'Voice: On' : 'Voice: Off';
+  elements.voiceStickyBtn.classList.toggle('is-on', stickyOn);
+  elements.voiceOnceBtn.classList.toggle('is-on', oneShotOn);
+  elements.voiceOnceBtn.textContent = oneShotOn ? 'Listen Once: On' : 'Listen Once';
+  const hideMoveForm = state.voiceMode || (state.sessionMode === 'blind-puzzles' && !isBlindPlayableGameMode());
+  elements.moveInputs.classList.toggle('voice-active', hideMoveForm);
   if (!state.voiceMode) {
     elements.voiceStatus.textContent = '';
   } else if (isWaitingForComputerMove()) {
@@ -3590,7 +3617,10 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideMain;
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
-  elements.moveInputs.hidden = beforeGameStart || (inBlind && !inBlindGame) || hideBelowSlider || !allowMoveInput;
+  const hideMoveInputs = beforeGameStart
+    || hideBelowSlider
+    || (state.sessionMode === 'puzzle' && !allowMoveInput);
+  elements.moveInputs.hidden = hideMoveInputs;
   elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
   elements.lastMoveRow.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
   elements.statusRow.hidden = hideBelowSlider;
@@ -3695,7 +3725,8 @@ function ensureVoiceRecognition() {
       elements.statusText.textContent = `Could not parse voice move: ${transcript}`;
       return;
     }
-    if (!state.voiceSticky) {
+    if (state.voiceOneShot) {
+      state.voiceOneShot = false;
       setVoiceMode(false);
     }
   };
@@ -3763,6 +3794,9 @@ function stopVoiceListening() {
 
 function setVoiceMode(enabled) {
   state.voiceMode = enabled;
+  if (!enabled) {
+    state.voiceOneShot = false;
+  }
   if (enabled) {
     refreshVoiceListeningState();
   } else {
@@ -4113,8 +4147,19 @@ window.addEventListener('pointerdown', (event) => {
   updateMoveAssistVisibility();
 });
 
-elements.voiceBtn.addEventListener('click', () => {
-  setVoiceMode(!state.voiceMode);
+elements.voiceOnceBtn.addEventListener('click', () => {
+  state.voiceOneShot = true;
+  setVoiceMode(true);
+});
+
+elements.voiceStickyBtn.addEventListener('click', () => {
+  const stickyOn = state.voiceMode && !state.voiceOneShot;
+  if (stickyOn) {
+    setVoiceMode(false);
+    return;
+  }
+  state.voiceOneShot = false;
+  setVoiceMode(true);
 });
 
 ensureStockfishWorker();
