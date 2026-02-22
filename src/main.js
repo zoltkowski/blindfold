@@ -14,6 +14,10 @@ app.innerHTML = `
           <div id="board" class="board"></div>
         </div>
       <div class="board-actions">
+        <div class="board-actions-left">
+          <button id="rotateBoardBtn" class="icon-rotate-btn" type="button" aria-label="Rotate board" title="Rotate board">↻</button>
+          <button id="openConfigBtn" class="icon-config-btn" type="button" aria-label="Open configuration">⚙</button>
+        </div>
         <div class="board-actions-main">
           <button id="newGameBtn" type="button">New Game</button>
           <button id="loadPuzzleBtn" type="button">Lichess Puzzle</button>
@@ -26,17 +30,7 @@ app.innerHTML = `
     <section class="right-col">
       <h1>Blindfold Chess Trainer</h1>
 
-      <button id="openConfigBtn" class="icon-config-btn" type="button" aria-label="Open configuration">⚙</button>
-
       <div class="grid-controls">
-        <label id="playAsRow">
-          Play As
-          <select id="playAs">
-            <option value="white">White</option>
-            <option value="black">Black</option>
-          </select>
-        </label>
-
         <label id="displayModeRow">
           Board View Mode
           <select id="displayMode">
@@ -51,11 +45,6 @@ app.innerHTML = `
             <option value="white-pieces-black-disks">White Pieces, Black Disks</option>
             <option value="black-pieces-white-disks">Black Pieces, White Disks</option>
           </select>
-        </label>
-
-        <label id="engineControlRow">
-          <span class="engine-meta"><span id="engineParamLabel">Stockfish Elo</span>: <span id="strengthValue">1700</span></span>
-          <input id="engineStrength" type="range" min="400" max="2850" step="50" value="1700" />
         </label>
       </div>
 
@@ -75,8 +64,8 @@ app.innerHTML = `
             </label>
 
             <label>
-              <span class="engine-meta"><span>Default Elo</span>: <span id="defaultEloValue">1700</span></span>
-              <input id="defaultElo" type="range" min="400" max="2850" step="50" value="1700" />
+              <span class="engine-meta"><span>Stockfish Elo</span>: <span id="optionStrengthValue">1700</span></span>
+              <input id="optionEngineStrength" type="range" min="400" max="2850" step="50" value="1700" />
             </label>
 
             <label class="checkbox-row">
@@ -196,11 +185,11 @@ app.innerHTML = `
         <div id="voiceStatus" class="muted"></div>
       </div>
 
-      <div class="status-row">
+      <div id="statusRow" class="status-row">
         <strong>Status:</strong>
         <span id="statusText">White to move</span>
       </div>
-      <div class="last-move-row">
+      <div id="lastMoveRow" class="last-move-row">
         <strong>Last move:</strong>
         <span id="lastMoveText" class="last-move-text">-</span>
       </div>
@@ -231,20 +220,15 @@ app.innerHTML = `
 const elements = {
   board: document.getElementById('board'),
   boardShell: document.querySelector('.board-shell'),
+  rotateBoardBtn: document.getElementById('rotateBoardBtn'),
   openConfigBtn: document.getElementById('openConfigBtn'),
   closeConfigBtn: document.getElementById('closeConfigBtn'),
   configModal: document.getElementById('configModal'),
-  playAsRow: document.getElementById('playAsRow'),
   displayModeRow: document.getElementById('displayModeRow'),
-  playAs: document.getElementById('playAs'),
   displayMode: document.getElementById('displayMode'),
   moveLanguage: document.getElementById('moveLanguage'),
-  defaultElo: document.getElementById('defaultElo'),
-  defaultEloValue: document.getElementById('defaultEloValue'),
-  engineControlRow: document.getElementById('engineControlRow'),
-  engineParamLabel: document.getElementById('engineParamLabel'),
-  engineStrength: document.getElementById('engineStrength'),
-  strengthValue: document.getElementById('strengthValue'),
+  optionEngineStrength: document.getElementById('optionEngineStrength'),
+  optionStrengthValue: document.getElementById('optionStrengthValue'),
   speakComputer: document.getElementById('speakComputer'),
   voiceSticky: document.getElementById('voiceSticky'),
   speakCheck: document.getElementById('speakCheck'),
@@ -282,7 +266,9 @@ const elements = {
   moveAssist: document.getElementById('moveAssist'),
   voiceBtn: document.getElementById('voiceBtn'),
   voiceStatus: document.getElementById('voiceStatus'),
+  statusRow: document.getElementById('statusRow'),
   statusText: document.getElementById('statusText'),
+  lastMoveRow: document.getElementById('lastMoveRow'),
   lastMoveText: document.getElementById('lastMoveText'),
   toggleMovesBtn: document.getElementById('toggleMovesBtn'),
   reviewPrevBtn: document.getElementById('reviewPrevBtn'),
@@ -425,9 +411,9 @@ const GAME_EXERCISE_LINES = `
 const state = {
   game: new Chess(),
   userColor: 'white',
+  boardOrientation: 'white',
   displayMode: 'normal-pieces',
   moveLanguage: 'pl',
-  defaultStockfishElo: 1700,
   stockfishElo: 1700,
   speakCheck: false,
   sessionMode: 'game',
@@ -469,7 +455,9 @@ const state = {
   voiceMode: false,
   voiceListening: false,
   speaking: false,
-  engineThinking: false
+  engineThinking: false,
+  hideBelowSliderOnStart: true,
+  gameStarted: false
 };
 
 function readSettings() {
@@ -760,7 +748,7 @@ function buildGameExercises() {
 function writeSettings() {
   const payload = {
     moveLanguage: state.moveLanguage,
-    defaultStockfishElo: state.defaultStockfishElo,
+    stockfishElo: state.stockfishElo,
     speakComputer: elements.speakComputer.checked,
     voiceSticky: state.voiceSticky,
     speakCheck: state.speakCheck,
@@ -787,9 +775,9 @@ function loadSettingsIntoState() {
   if (saved.moveLanguage === 'pl' || saved.moveLanguage === 'en') {
     state.moveLanguage = saved.moveLanguage;
   }
-  if (Number.isFinite(Number(saved.defaultStockfishElo))) {
-    state.defaultStockfishElo = Math.max(400, Math.min(2850, Number(saved.defaultStockfishElo)));
-    state.stockfishElo = state.defaultStockfishElo;
+  const savedElo = Number(saved.stockfishElo ?? saved.defaultStockfishElo);
+  if (Number.isFinite(savedElo)) {
+    state.stockfishElo = Math.max(400, Math.min(2850, savedElo));
   }
   if (typeof saved.speakCheck === 'boolean') {
     state.speakCheck = saved.speakCheck;
@@ -815,11 +803,10 @@ function loadSettingsIntoState() {
 }
 
 function applySettingsToUi() {
-  elements.playAs.value = state.userColor;
   elements.displayMode.value = state.displayMode;
   elements.moveLanguage.value = state.moveLanguage;
-  elements.defaultElo.value = String(state.defaultStockfishElo);
-  elements.defaultEloValue.textContent = String(state.defaultStockfishElo);
+  elements.optionEngineStrength.value = String(state.stockfishElo);
+  elements.optionStrengthValue.textContent = String(state.stockfishElo);
   elements.speakCheck.checked = state.speakCheck;
   elements.voiceSticky.checked = state.voiceSticky;
   elements.showBlindDests.checked = state.showBlindDests;
@@ -984,12 +971,13 @@ function updateBoard() {
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
   const boardOrientation = (state.sessionMode === 'puzzle' && state.puzzle)
     ? (state.puzzle.playerColor === 'b' ? 'black' : 'white')
-    : state.userColor;
+    : state.boardOrientation;
   const movableColor = state.sessionMode === 'puzzle'
     ? undefined
     : (reviewLocked
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
+  const boardInputEnabled = state.sessionMode !== 'game' || state.gameStarted;
 
   ground.set({
     orientation: boardOrientation,
@@ -1001,7 +989,7 @@ function updateBoard() {
     },
     movable: {
       free: false,
-      color: movableColor,
+      color: boardInputEnabled ? movableColor : undefined,
       showDests: shouldShowAnyMoveDots(),
       dests: (state.sessionMode === 'puzzle' || reviewLocked) ? new Map() : toDests(boardGame),
       events: {
@@ -1009,11 +997,11 @@ function updateBoard() {
       }
     },
     draggable: {
-      enabled: state.sessionMode !== 'puzzle',
+      enabled: state.sessionMode !== 'puzzle' && boardInputEnabled,
       showGhost: true
     },
     selectable: {
-      enabled: state.sessionMode !== 'puzzle' && !reviewLocked
+      enabled: state.sessionMode !== 'puzzle' && !reviewLocked && boardInputEnabled
     },
     check: boardGame.inCheck(),
     lastMove: lastMoveSquares(boardGame),
@@ -2397,7 +2385,6 @@ function startPositionExercise() {
   state.blindPuzzles.mode = 'position';
   state.blindPuzzles.positionIndex = idx;
   state.userColor = ex.turn === 'w' ? 'white' : 'black';
-  elements.playAs.value = state.userColor;
   state.revealPosition = false;
   state.reviewPly = null;
   state.game = new Chess();
@@ -2457,7 +2444,6 @@ function startGameExercise() {
   state.blindPuzzles.gameIndex = idx;
   state.blindPuzzles.gamePrefixMoves = ex.moveVerbose ?? [];
   state.userColor = ex.turn === 'w' ? 'white' : 'black';
-  elements.playAs.value = state.userColor;
   state.revealPosition = false;
   state.reviewPly = null;
   state.game = new Chess();
@@ -2604,7 +2590,6 @@ function startKRookMatting() {
   state.puzzleAutoPlaying = false;
   state.blindPuzzles.mode = 'kr-matting';
   state.userColor = 'white';
-  elements.playAs.value = 'white';
   state.revealPosition = false;
   state.reviewPly = null;
   state.game = game;
@@ -2625,7 +2610,6 @@ function startKQueenMatting() {
   state.puzzleAutoPlaying = false;
   state.blindPuzzles.mode = 'kq-matting';
   state.userColor = 'white';
-  elements.playAs.value = 'white';
   state.revealPosition = false;
   state.reviewPly = null;
   state.game = game;
@@ -2933,6 +2917,11 @@ function findLooseExpectedPuzzleMove(text) {
 }
 
 function applyPlayerMove(text) {
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    elements.statusText.textContent = 'Press New Game to start.';
+    return false;
+  }
+
   if (state.sessionMode === 'puzzle' && state.puzzleAutoPlaying) {
     elements.statusText.textContent = 'Solution playback in progress...';
     return false;
@@ -3014,6 +3003,12 @@ function applyPlayerMove(text) {
 }
 
 function onBoardMove(from, to) {
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    elements.statusText.textContent = 'Press New Game to start.';
+    updateBoard();
+    return;
+  }
+
   if (state.sessionMode === 'puzzle') {
     elements.statusText.textContent = 'Board is inactive in puzzle mode. Use text or voice input.';
     updateBoard();
@@ -3064,13 +3059,11 @@ function stockfishMoveTimeFromElo(elo = state.stockfishElo) {
 }
 
 function syncEngineControlUi() {
-  elements.engineControlRow.style.display = 'flex';
-  elements.engineParamLabel.textContent = 'Stockfish Elo';
-  elements.engineStrength.min = '400';
-  elements.engineStrength.max = '2850';
-  elements.engineStrength.step = '50';
-  elements.engineStrength.value = String(state.stockfishElo);
-  elements.strengthValue.textContent = String(state.stockfishElo);
+  elements.optionEngineStrength.min = '400';
+  elements.optionEngineStrength.max = '2850';
+  elements.optionEngineStrength.step = '50';
+  elements.optionEngineStrength.value = String(state.stockfishElo);
+  elements.optionStrengthValue.textContent = String(state.stockfishElo);
 }
 
 function ensureStockfishWorker() {
@@ -3339,6 +3332,9 @@ function speakPuzzleContextIfEnabled(contextSans) {
 }
 
 async function playEngineMoveIfNeeded() {
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    return;
+  }
   if (state.sessionMode !== 'game' && !isBlindPlayableGameMode()) {
     return;
   }
@@ -3478,6 +3474,10 @@ function updateLastMove() {
 }
 
 function updateStatus() {
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    elements.statusText.textContent = 'Press New Game to start.';
+    return;
+  }
   if (state.sessionMode === 'blind-puzzles' && !isBlindPlayableGameMode()) {
     return;
   }
@@ -3533,15 +3533,43 @@ function updateMainControlsVisibility() {
   const inBlind = state.sessionMode === 'blind-puzzles';
   const hideMain = inPuzzle || inBlind;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
-  elements.playAsRow.hidden = hideMain;
+  const hideBelowSlider = state.hideBelowSliderOnStart && state.sessionMode === 'game';
+  const allowMoveInput = !state.game.isGameOver()
+    && !state.engineThinking
+    && !isReviewLocked()
+    && (state.sessionMode === 'puzzle'
+      || state.sessionMode === 'game'
+      || inBlindGame)
+    && (state.sessionMode !== 'game' || state.gameStarted)
+    && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideMain;
-  elements.engineControlRow.hidden = hideMain;
-  elements.playAsRow.style.display = hideMain ? 'none' : '';
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
-  elements.engineControlRow.style.display = hideMain ? 'none' : 'flex';
-  elements.moveInputs.hidden = inBlind && !inBlindGame;
-  elements.movesPanel.hidden = inBlind && !inBlindGame;
-  elements.lastMoveText.parentElement.hidden = inBlind && !inBlindGame;
+  elements.moveInputs.hidden = (inBlind && !inBlindGame) || hideBelowSlider || !allowMoveInput;
+  elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
+  elements.lastMoveRow.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
+  elements.statusRow.hidden = hideBelowSlider;
+}
+
+function revealBelowSliderControls() {
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    return;
+  }
+  if (!state.hideBelowSliderOnStart) {
+    return;
+  }
+  state.hideBelowSliderOnStart = false;
+  updateMainControlsVisibility();
+}
+
+function blurAnyFocusedInput() {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) {
+    return;
+  }
+  const tag = active.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active.isContentEditable) {
+    active.blur();
+  }
 }
 
 function updateMoveInputPlaceholder() {
@@ -3761,7 +3789,10 @@ function resetGame() {
   state.puzzleAutoPlaying = false;
   state.puzzleViewIndex = 0;
   state.reviewPly = null;
+  state.userColor = state.boardOrientation;
   state.game = new Chess();
+  state.gameStarted = true;
+  state.hideBelowSliderOnStart = false;
   updateAll();
   if (state.userColor === 'black') {
     window.setTimeout(playEngineMoveIfNeeded, 250);
@@ -3770,6 +3801,11 @@ function resetGame() {
 
 elements.moveForm.addEventListener('submit', (evt) => {
   evt.preventDefault();
+  if (state.sessionMode === 'game' && !state.gameStarted) {
+    elements.statusText.textContent = 'Press New Game to start.';
+    elements.moveInput.value = '';
+    return;
+  }
   const ok = applyPlayerMove(elements.moveInput.value);
   if (!ok && state.sessionMode !== 'puzzle') {
     elements.statusText.textContent = 'Invalid move for current position.';
@@ -3799,11 +3835,6 @@ elements.moveAssist.addEventListener('click', (event) => {
     return;
   }
   appendMoveInputToken(token);
-});
-
-elements.playAs.addEventListener('change', () => {
-  state.userColor = elements.playAs.value;
-  resetGame();
 });
 
 elements.displayMode.addEventListener('change', () => {
@@ -3845,11 +3876,6 @@ elements.darkMode.addEventListener('change', () => {
   writeSettings();
 });
 
-elements.engineStrength.addEventListener('input', () => {
-  state.stockfishElo = Number(elements.engineStrength.value);
-  elements.strengthValue.textContent = String(state.stockfishElo);
-});
-
 elements.speakCheck.addEventListener('change', () => {
   state.speakCheck = elements.speakCheck.checked;
   writeSettings();
@@ -3878,12 +3904,9 @@ elements.blindQuestionCount.addEventListener('change', () => {
   writeSettings();
 });
 
-elements.defaultElo.addEventListener('input', () => {
-  const value = Number(elements.defaultElo.value);
+elements.optionEngineStrength.addEventListener('input', () => {
+  const value = Number(elements.optionEngineStrength.value);
   const bounded = Number.isFinite(value) ? Math.max(400, Math.min(2850, Math.round(value / 50) * 50)) : 1700;
-  state.defaultStockfishElo = bounded;
-  elements.defaultElo.value = String(bounded);
-  elements.defaultEloValue.textContent = String(bounded);
   state.stockfishElo = bounded;
   syncEngineControlUi();
   writeSettings();
@@ -3921,11 +3944,19 @@ elements.revealBtn.addEventListener('click', () => {
   updateBoard();
 });
 
+elements.rotateBoardBtn.addEventListener('click', () => {
+  state.boardOrientation = state.boardOrientation === 'white' ? 'black' : 'white';
+  clearBlindClickSelection();
+  updateBoard();
+});
+
 elements.newGameBtn.addEventListener('click', resetGame);
 elements.loadPuzzleBtn.addEventListener('click', () => {
+  revealBelowSliderControls();
   loadLichessPuzzle();
 });
 elements.blindPuzzlesBtn.addEventListener('click', () => {
+  revealBelowSliderControls();
   startBlindPuzzlesMode();
 });
 elements.blindGameBtn.addEventListener('click', () => {
@@ -4001,6 +4032,10 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
+window.addEventListener('pointerdown', () => {
+  revealBelowSliderControls();
+}, { once: true });
+
 elements.voiceBtn.addEventListener('click', () => {
   setVoiceMode(!state.voiceMode);
 });
@@ -4017,4 +4052,5 @@ updateMoveInputPlaceholder();
 syncMoveAssistPieces();
 updateVoiceUi();
 syncMovesVisibilityUi();
-resetGame();
+updateAll();
+window.setTimeout(blurAnyFocusedInput, 0);
