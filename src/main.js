@@ -96,6 +96,10 @@ app.innerHTML = `
               <input id="darkMode" type="checkbox" />
               Dark Mode
             </label>
+            <label class="checkbox-row">
+              <input id="showOnScreenKeyboard" type="checkbox" />
+              Show On-Screen Keyboard
+            </label>
             <label>
               Puzzle Difficulty
               <select id="puzzleDifficulty">
@@ -119,10 +123,8 @@ app.innerHTML = `
       </div>
 
       <div class="puzzle-panel" id="puzzlePanel" hidden>
-        <div><strong>Puzzle:</strong> <span id="puzzleMeta">-</span></div>
-        <div><strong>Context moves:</strong> <span id="puzzleContext">-</span></div>
-        <div><strong>Solution moves:</strong> <span id="puzzleSolution">-</span></div>
-        <button id="showSolutionBtn" type="button" disabled>Show Solution</button>
+        <div class="puzzle-head-row"><span><strong>Puzzle:</strong> <span id="puzzleMeta">-</span></span><button id="showSolutionBtn" type="button" disabled>Show Solution</button></div>
+        <div><strong>Moves:</strong> <span id="puzzleContext">-</span></div>
       </div>
 
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
@@ -235,6 +237,7 @@ const elements = {
   figurineNotation: document.getElementById('figurineNotation'),
   showBlindDests: document.getElementById('showBlindDests'),
   darkMode: document.getElementById('darkMode'),
+  showOnScreenKeyboard: document.getElementById('showOnScreenKeyboard'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
   blindQuestionCount: document.getElementById('blindQuestionCount'),
@@ -245,7 +248,6 @@ const elements = {
   showSolutionBtn: document.getElementById('showSolutionBtn'),
   puzzleMeta: document.getElementById('puzzleMeta'),
   puzzleContext: document.getElementById('puzzleContext'),
-  puzzleSolution: document.getElementById('puzzleSolution'),
   blindPanel: document.getElementById('blindPanel'),
   blindGameBtn: document.getElementById('blindGameBtn'),
   blindPositionBtn: document.getElementById('blindPositionBtn'),
@@ -450,6 +452,7 @@ const state = {
   movesVisible: false,
   showBlindDests: true,
   darkMode: false,
+  showOnScreenKeyboard: false,
   blindClickFrom: null,
   voiceSticky: true,
   voiceMode: false,
@@ -755,6 +758,7 @@ function writeSettings() {
     figurineNotation: elements.figurineNotation.checked,
     showBlindDests: state.showBlindDests,
     darkMode: state.darkMode,
+    showOnScreenKeyboard: state.showOnScreenKeyboard,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleDifficulty: state.puzzleDifficulty,
     blindQuestionCount: state.blindQuestionCount
@@ -800,6 +804,9 @@ function loadSettingsIntoState() {
   if (typeof saved.darkMode === 'boolean') {
     state.darkMode = saved.darkMode;
   }
+  if (typeof saved.showOnScreenKeyboard === 'boolean') {
+    state.showOnScreenKeyboard = saved.showOnScreenKeyboard;
+  }
 }
 
 function applySettingsToUi() {
@@ -811,6 +818,7 @@ function applySettingsToUi() {
   elements.voiceSticky.checked = state.voiceSticky;
   elements.showBlindDests.checked = state.showBlindDests;
   elements.darkMode.checked = state.darkMode;
+  elements.showOnScreenKeyboard.checked = state.showOnScreenKeyboard;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
@@ -821,6 +829,8 @@ function applySettingsToUi() {
     elements.figurineNotation.checked = saved.figurineNotation !== false;
   }
   applyTheme();
+  syncMoveInputMode();
+  updateMoveAssistVisibility();
 }
 
 function applyTheme() {
@@ -1344,7 +1354,6 @@ function updatePuzzlePanel() {
     elements.puzzlePanel.hidden = true;
     elements.puzzleMeta.textContent = '-';
     elements.puzzleContext.textContent = '-';
-    elements.puzzleSolution.textContent = '-';
     elements.showSolutionBtn.disabled = true;
     return;
   }
@@ -1360,13 +1369,20 @@ function updatePuzzlePanel() {
   puzzleLink.textContent = p.id;
   elements.puzzleMeta.appendChild(puzzleLink);
   elements.puzzleMeta.append(` | rating ${p.rating}`);
-  elements.puzzleContext.textContent = formatSanLineFromList(p.contextSans, p.contextStartPly);
+  const contextLine = formatSanLineFromList(p.contextSans, p.contextStartPly);
   const shownSolutionSans = p.revealSolutionText
     ? p.solutionSans
     : p.solutionSans.slice(0, solvedSolutionCount);
-  elements.puzzleSolution.textContent = shownSolutionSans.length
+  const solutionLine = shownSolutionSans.length
     ? formatSanLineFromList(shownSolutionSans, p.startPly)
     : '-';
+  if (contextLine && contextLine !== '-' && solutionLine && solutionLine !== '-') {
+    elements.puzzleContext.textContent = `${contextLine} | ${solutionLine}`;
+  } else if (contextLine && contextLine !== '-') {
+    elements.puzzleContext.textContent = contextLine;
+  } else {
+    elements.puzzleContext.textContent = solutionLine;
+  }
   elements.showSolutionBtn.disabled = p.solved || state.puzzleAutoPlaying;
 }
 
@@ -2818,7 +2834,14 @@ function normalizeMoveInput(inputRaw) {
   } else if (['dluga roszada', 'roszada dluga'].includes(spoken)) {
     move = 'O-O-O';
   }
-  move = move.replace(/^0-0-0$/, 'O-O-O').replace(/^0-0$/, 'O-O');
+  const compactCastle = move.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (compactCastle === 'ooo' || compactCastle === '000') {
+    move = 'O-O-O';
+  } else if (compactCastle === 'oo' || compactCastle === '00') {
+    move = 'O-O';
+  } else {
+    move = move.replace(/^0-0-0$/i, 'O-O-O').replace(/^0-0$/i, 'O-O');
+  }
 
   const uci = move.toLowerCase().replace(/\s+/g, '');
   if (/^[a-h][1-8][a-h][1-8][qrbnshwg]?$/.test(uci)) {
@@ -3526,12 +3549,35 @@ function updateVoiceUi() {
   } else if (!state.voiceListening && !elements.voiceStatus.textContent) {
     elements.voiceStatus.textContent = 'Starting voice recognition...';
   }
+  updateMoveAssistVisibility();
+}
+
+function updateMoveAssistVisibility() {
+  const inputFocused = document.activeElement === elements.moveInput;
+  const visible = state.showOnScreenKeyboard && inputFocused && !elements.moveInputs.hidden;
+  elements.moveAssist.hidden = !visible;
+  elements.moveAssist.classList.toggle('is-popup-open', visible);
+}
+
+function isMobileTouchDevice() {
+  return window.matchMedia('(pointer: coarse)').matches;
+}
+
+function syncMoveInputMode() {
+  const usePopupOnly = state.showOnScreenKeyboard && isMobileTouchDevice();
+  elements.moveInput.readOnly = usePopupOnly;
+  if (usePopupOnly) {
+    elements.moveInput.setAttribute('inputmode', 'none');
+  } else {
+    elements.moveInput.setAttribute('inputmode', 'text');
+  }
 }
 
 function updateMainControlsVisibility() {
   const inPuzzle = state.sessionMode === 'puzzle';
   const inBlind = state.sessionMode === 'blind-puzzles';
   const hideMain = inPuzzle || inBlind;
+  const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
   const hideBelowSlider = state.hideBelowSliderOnStart && state.sessionMode === 'game';
   const allowMoveInput = !state.game.isGameOver()
@@ -3544,7 +3590,7 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideMain;
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
-  elements.moveInputs.hidden = (inBlind && !inBlindGame) || hideBelowSlider || !allowMoveInput;
+  elements.moveInputs.hidden = beforeGameStart || (inBlind && !inBlindGame) || hideBelowSlider || !allowMoveInput;
   elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
   elements.lastMoveRow.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
   elements.statusRow.hidden = hideBelowSlider;
@@ -3837,6 +3883,18 @@ elements.moveAssist.addEventListener('click', (event) => {
   appendMoveInputToken(token);
 });
 
+elements.moveAssist.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+});
+
+elements.moveInput.addEventListener('focus', () => {
+  updateMoveAssistVisibility();
+});
+
+elements.moveInput.addEventListener('blur', () => {
+  window.setTimeout(updateMoveAssistVisibility, 0);
+});
+
 elements.displayMode.addEventListener('change', () => {
   state.displayMode = elements.displayMode.value;
   clearBlindClickSelection();
@@ -3873,6 +3931,13 @@ elements.showBlindDests.addEventListener('change', () => {
 elements.darkMode.addEventListener('change', () => {
   state.darkMode = elements.darkMode.checked;
   applyTheme();
+  writeSettings();
+});
+
+elements.showOnScreenKeyboard.addEventListener('change', () => {
+  state.showOnScreenKeyboard = elements.showOnScreenKeyboard.checked;
+  syncMoveInputMode();
+  updateMoveAssistVisibility();
   writeSettings();
 });
 
@@ -4036,6 +4101,18 @@ window.addEventListener('pointerdown', () => {
   revealBelowSliderControls();
 }, { once: true });
 
+window.addEventListener('pointerdown', (event) => {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    return;
+  }
+  if (target === elements.moveInput || elements.moveAssist.contains(target)) {
+    return;
+  }
+  elements.moveInput.blur();
+  updateMoveAssistVisibility();
+});
+
 elements.voiceBtn.addEventListener('click', () => {
   setVoiceMode(!state.voiceMode);
 });
@@ -4052,5 +4129,6 @@ updateMoveInputPlaceholder();
 syncMoveAssistPieces();
 updateVoiceUi();
 syncMovesVisibilityUi();
+syncMoveInputMode();
 updateAll();
 window.setTimeout(blurAnyFocusedInput, 0);
