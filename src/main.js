@@ -1097,7 +1097,15 @@ function findConfiguredTtsVoice() {
   return getAvailableTtsVoices().find((voice) => voice.voiceURI === state.ttsVoiceUri) ?? null;
 }
 
+function normalizeTtsText(text) {
+  return String(text ?? '')
+    .replace(/\./g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function applyTtsOptions(utterance, lang) {
+  utterance.text = normalizeTtsText(utterance.text);
   utterance.lang = lang;
   utterance.rate = Math.max(0.1, Math.min(1.5, Number(state.ttsRate) || 1));
   const selectedVoice = findConfiguredTtsVoice();
@@ -2967,9 +2975,9 @@ function speakGameTask(exercise) {
   }
   const movesSpoken = (exercise.moveSans ?? [])
     .map((san) => sanToPolishSpeech(san))
-    .join('. ');
+    .join(' ');
   const side = exercise.turn === 'w' ? 'biale zaczynaja' : 'czarne zaczynaja';
-  const utterance = new SpeechSynthesisUtterance(`${movesSpoken}. ${side}.`);
+  const utterance = new SpeechSynthesisUtterance(`${movesSpoken} ${side}`);
   applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
@@ -4056,7 +4064,7 @@ function speakPuzzleContextIfEnabled(contextSans) {
   if (!spokenMoves.length) {
     return;
   }
-  const utterance = new SpeechSynthesisUtterance(spokenMoves.join('. '));
+  const utterance = new SpeechSynthesisUtterance(spokenMoves.join(' '));
   applyTtsOptions(utterance, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
   utterance.onstart = () => {
     state.speaking = true;
@@ -4426,7 +4434,7 @@ function playTtsSample() {
   if (!spokenMoves.length) {
     return;
   }
-  const text = spokenMoves.join('. ');
+  const text = spokenMoves.join(' ');
   const lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
   const utterance = new SpeechSynthesisUtterance(text);
   applyTtsOptions(utterance, lang);
