@@ -38,8 +38,7 @@ app.innerHTML = `
             <option value="same-pieces">Same Color Pieces</option>
             <option value="different-disks">Different Color Disks</option>
             <option value="same-disks">Same Color Disks</option>
-            <option value="no-pieces">No Pieces, Move Marks</option>
-            <option value="no-pieces-no-marks">No Pieces, No Move Marks</option>
+            <option value="no-pieces">No Pieces Only</option>
             <option value="no-board">No Board</option>
             <option value="white-only">Show White, Hide Black</option>
             <option value="black-only">Show Black, Hide White</option>
@@ -86,6 +85,18 @@ app.innerHTML = `
               Show legal target dots after source click
             </label>
             <label class="checkbox-row">
+              <input id="showCoordinates" type="checkbox" />
+              Show Square Coordinates
+            </label>
+            <label class="checkbox-row">
+              <input id="showLastMove" type="checkbox" checked />
+              Show Last Move
+            </label>
+            <label class="checkbox-row">
+              <input id="showMoveMarks" type="checkbox" checked />
+              Show Move Marks
+            </label>
+            <label class="checkbox-row">
               <input id="puzzleAutoOpponent" type="checkbox" checked />
               Auto-play opponent moves in lichess puzzles
             </label>
@@ -97,6 +108,17 @@ app.innerHTML = `
               <input id="showOnScreenKeyboard" type="checkbox" />
               Show On-Screen Keyboard
             </label>
+            <label>
+              TTS Voice
+              <select id="ttsVoice">
+                <option value="">System default</option>
+              </select>
+            </label>
+            <label>
+              <span class="engine-meta"><span>TTS Speed</span>: <span id="ttsRateValue">1.0x</span></span>
+              <input id="ttsRate" type="range" min="0.1" max="1.5" step="0.1" value="1.0" />
+            </label>
+            <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
             <label>
               Puzzle Difficulty
               <select id="puzzleDifficulty">
@@ -197,19 +219,26 @@ app.innerHTML = `
 
       <div id="statusRow" class="status-row">
         <span id="statusText">White to move</span>
-        <button id="showSolutionBtn" type="button" hidden disabled>Show Solution</button>
       </div>
       <div id="squareColorControls" class="square-color-controls" hidden>
         <button id="squareColorWhiteBtn" type="button">White</button>
         <button id="squareColorBlackBtn" type="button">Black</button>
       </div>
       <div id="lastMoveRow" class="last-move-row">
-        <strong>Last move:</strong>
-        <span id="lastMoveText" class="last-move-text">-</span>
+        <span id="lastMoveText" class="last-move-text"></span>
       </div>
 
       <div id="movesPanel" class="moves-panel">
-        <button id="toggleMovesBtn" type="button">Show Moves</button>
+        <button id="toggleMovesBtn" type="button" aria-label="Show moves" title="Show moves">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>
+          </svg>
+        </button>
+        <button id="showSolutionBtn" type="button" hidden disabled aria-label="Show solution" title="Show solution">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.3 1 2.2h5.2c0-.9.4-1.7 1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+        </button>
         <div id="reviewNav" class="review-nav">
           <button id="reviewPrevBtn" type="button" aria-label="Previous move" title="Previous move">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
@@ -246,8 +275,15 @@ const elements = {
   speakCheck: document.getElementById('speakCheck'),
   figurineNotation: document.getElementById('figurineNotation'),
   showBlindDests: document.getElementById('showBlindDests'),
+  showCoordinates: document.getElementById('showCoordinates'),
+  showLastMove: document.getElementById('showLastMove'),
+  showMoveMarks: document.getElementById('showMoveMarks'),
   darkMode: document.getElementById('darkMode'),
   showOnScreenKeyboard: document.getElementById('showOnScreenKeyboard'),
+  ttsVoice: document.getElementById('ttsVoice'),
+  ttsRate: document.getElementById('ttsRate'),
+  ttsRateValue: document.getElementById('ttsRateValue'),
+  ttsSampleBtn: document.getElementById('ttsSampleBtn'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
   puzzleBacktrackValue: document.getElementById('puzzleBacktrackValue'),
@@ -308,6 +344,17 @@ const assistPieceButtons = Array.from(document.querySelectorAll('[data-assist-pi
 const SETTINGS_KEY = 'blindfold_chess_settings_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
+const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
+const STORAGE_DB_VERSION = 1;
+const STORAGE_STORE_NAME = 'app_kv';
+const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY];
+
+const persistentStorage = {
+  initPromise: null,
+  db: null,
+  cache: new Map(),
+  ready: false
+};
 
 const POSITION_EXERCISE_LINES = `
 białe: Ka7 P:a6  czarne: Kc6 – posunięcie czarnych
@@ -469,12 +516,18 @@ const state = {
   gameSolved: new Set(),
   prePuzzleDisplayMode: null,
   puzzleViewIndex: 0,
+  puzzleRevealPrevView: null,
   reviewPly: null,
   revealPosition: false,
   movesVisible: false,
   showBlindDests: true,
+  showCoordinates: false,
+  showLastMove: true,
+  showMoveMarks: true,
   darkMode: false,
   showOnScreenKeyboard: false,
+  ttsVoiceUri: '',
+  ttsRate: 1,
   blindClickFrom: null,
   voiceSticky: true,
   voiceMode: false,
@@ -486,65 +539,171 @@ const state = {
   gameStarted: false
 };
 
-function readSettings() {
+function readLocalJson(key) {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) {
       return null;
     }
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    return JSON.parse(raw);
   } catch (_error) {
     return null;
   }
 }
 
-function readSolvedPositions() {
+function writeLocalJson(key, value) {
   try {
-    const raw = localStorage.getItem(POSITION_SOLVED_KEY);
-    if (!raw) {
-      return new Set();
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return new Set();
-    }
-    return new Set(parsed.filter((v) => Number.isInteger(v)));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (_error) {
+    // ignore storage errors
+  }
+}
+
+function openPersistentDb() {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    try {
+      const request = indexedDB.open(STORAGE_DB_NAME, STORAGE_DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORAGE_STORE_NAME)) {
+          db.createObjectStore(STORAGE_STORE_NAME);
+        }
+      };
+      request.onsuccess = () => {
+        settled = true;
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        settled = true;
+        resolve(null);
+      };
+      request.onblocked = () => {
+        if (!settled) {
+          settled = true;
+          resolve(null);
+        }
+      };
+    } catch (_error) {
+      resolve(null);
+    }
+  });
+}
+
+function idbGet(db, key) {
+  if (!db) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORAGE_STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORAGE_STORE_NAME);
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => resolve(null);
+    } catch (_error) {
+      resolve(null);
+    }
+  });
+}
+
+function idbSet(db, key, value) {
+  if (!db) {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORAGE_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORAGE_STORE_NAME);
+      store.put(value, key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    } catch (_error) {
+      resolve(false);
+    }
+  });
+}
+
+async function hydratePersistentStorage() {
+  if (persistentStorage.initPromise) {
+    return persistentStorage.initPromise;
+  }
+  persistentStorage.initPromise = (async () => {
+    const db = await openPersistentDb();
+    persistentStorage.db = db;
+    for (const key of PERSISTED_KEYS) {
+      let value = db ? await idbGet(db, key) : null;
+      if (value == null) {
+        const local = readLocalJson(key);
+        if (local != null) {
+          value = local;
+          if (db) {
+            await idbSet(db, key, local);
+          }
+        }
+      }
+      persistentStorage.cache.set(key, value ?? null);
+    }
+    persistentStorage.ready = true;
+  })();
+  return persistentStorage.initPromise;
+}
+
+function readPersistentValue(key) {
+  if (persistentStorage.cache.has(key)) {
+    return persistentStorage.cache.get(key);
+  }
+  return readLocalJson(key);
+}
+
+async function writePersistentValue(key, value) {
+  persistentStorage.cache.set(key, value);
+  writeLocalJson(key, value);
+  try {
+    if (!persistentStorage.ready) {
+      await hydratePersistentStorage();
+    }
+    if (persistentStorage.db) {
+      await idbSet(persistentStorage.db, key, value);
+    }
+  } catch (_error) {
+    // ignore storage errors
+  }
+}
+
+function readSettings() {
+  const parsed = readPersistentValue(SETTINGS_KEY);
+  return parsed && typeof parsed === 'object' ? parsed : null;
+}
+
+function readSolvedPositions() {
+  const parsed = readPersistentValue(POSITION_SOLVED_KEY);
+  if (!Array.isArray(parsed)) {
     return new Set();
   }
+  return new Set(parsed.filter((v) => Number.isInteger(v)));
 }
 
 function writeSolvedPositions() {
-  try {
-    localStorage.setItem(POSITION_SOLVED_KEY, JSON.stringify([...state.positionSolved.values()].sort((a, b) => a - b)));
-  } catch (_error) {
-    // ignore storage errors
-  }
+  const payload = [...state.positionSolved.values()].sort((a, b) => a - b);
+  void writePersistentValue(POSITION_SOLVED_KEY, payload);
 }
 
 function readSolvedGames() {
-  try {
-    const raw = localStorage.getItem(GAME_SOLVED_KEY);
-    if (!raw) {
-      return new Set();
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return new Set();
-    }
-    return new Set(parsed.filter((v) => Number.isInteger(v)));
-  } catch (_error) {
+  const parsed = readPersistentValue(GAME_SOLVED_KEY);
+  if (!Array.isArray(parsed)) {
     return new Set();
   }
+  return new Set(parsed.filter((v) => Number.isInteger(v)));
 }
 
 function writeSolvedGames() {
-  try {
-    localStorage.setItem(GAME_SOLVED_KEY, JSON.stringify([...state.gameSolved.values()].sort((a, b) => a - b)));
-  } catch (_error) {
-    // ignore storage errors
-  }
+  const payload = [...state.gameSolved.values()].sort((a, b) => a - b);
+  void writePersistentValue(GAME_SOLVED_KEY, payload);
 }
 
 function normalizePolishText(text) {
@@ -780,17 +939,18 @@ function writeSettings() {
     speakCheck: state.speakCheck,
     figurineNotation: elements.figurineNotation.checked,
     showBlindDests: state.showBlindDests,
+    showCoordinates: state.showCoordinates,
+    showLastMove: state.showLastMove,
+    showMoveMarks: state.showMoveMarks,
     darkMode: state.darkMode,
     showOnScreenKeyboard: state.showOnScreenKeyboard,
+    ttsVoiceUri: state.ttsVoiceUri,
+    ttsRate: state.ttsRate,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleDifficulty: state.puzzleDifficulty,
     blindQuestionCount: state.blindQuestionCount
   };
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
-  } catch (_error) {
-    // ignore storage errors
-  }
+  void writePersistentValue(SETTINGS_KEY, payload);
 }
 
 function loadSettingsIntoState() {
@@ -824,11 +984,26 @@ function loadSettingsIntoState() {
   if (typeof saved.showBlindDests === 'boolean') {
     state.showBlindDests = saved.showBlindDests;
   }
+  if (typeof saved.showCoordinates === 'boolean') {
+    state.showCoordinates = saved.showCoordinates;
+  }
+  if (typeof saved.showLastMove === 'boolean') {
+    state.showLastMove = saved.showLastMove;
+  }
+  if (typeof saved.showMoveMarks === 'boolean') {
+    state.showMoveMarks = saved.showMoveMarks;
+  }
   if (typeof saved.darkMode === 'boolean') {
     state.darkMode = saved.darkMode;
   }
   if (typeof saved.showOnScreenKeyboard === 'boolean') {
     state.showOnScreenKeyboard = saved.showOnScreenKeyboard;
+  }
+  if (typeof saved.ttsVoiceUri === 'string') {
+    state.ttsVoiceUri = saved.ttsVoiceUri;
+  }
+  if (Number.isFinite(Number(saved.ttsRate))) {
+    state.ttsRate = Math.max(0.1, Math.min(1.5, Number(saved.ttsRate)));
   }
 }
 
@@ -839,8 +1014,14 @@ function applySettingsToUi() {
   elements.optionStrengthValue.textContent = String(state.stockfishElo);
   elements.speakCheck.checked = state.speakCheck;
   elements.showBlindDests.checked = state.showBlindDests;
+  elements.showCoordinates.checked = state.showCoordinates;
+  elements.showLastMove.checked = state.showLastMove;
+  elements.showMoveMarks.checked = state.showMoveMarks;
   elements.darkMode.checked = state.darkMode;
   elements.showOnScreenKeyboard.checked = state.showOnScreenKeyboard;
+  elements.ttsRate.value = String(state.ttsRate);
+  elements.ttsRateValue.textContent = `${state.ttsRate.toFixed(1)}x`;
+  elements.ttsVoice.value = state.ttsVoiceUri;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
@@ -893,6 +1074,58 @@ const voiceState = {
   startLock: false
 };
 
+function getAvailableTtsVoices() {
+  if (typeof speechSynthesis === 'undefined' || typeof speechSynthesis.getVoices !== 'function') {
+    return [];
+  }
+  return speechSynthesis.getVoices() ?? [];
+}
+
+function findConfiguredTtsVoice() {
+  if (!state.ttsVoiceUri) {
+    return null;
+  }
+  return getAvailableTtsVoices().find((voice) => voice.voiceURI === state.ttsVoiceUri) ?? null;
+}
+
+function applyTtsOptions(utterance, lang) {
+  utterance.lang = lang;
+  utterance.rate = Math.max(0.1, Math.min(1.5, Number(state.ttsRate) || 1));
+  const selectedVoice = findConfiguredTtsVoice();
+  if (selectedVoice) {
+    utterance.voice = selectedVoice;
+  }
+}
+
+function populateTtsVoices() {
+  if (!(elements.ttsVoice instanceof HTMLSelectElement)) {
+    return;
+  }
+  const select = elements.ttsVoice;
+  const current = state.ttsVoiceUri;
+  const languagePrefix = state.moveLanguage === 'pl' ? 'pl' : 'en';
+  const voices = getAvailableTtsVoices()
+    .filter((voice) => String(voice.lang ?? '').toLowerCase().startsWith(languagePrefix))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name));
+  select.innerHTML = '';
+  const defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.textContent = 'System default';
+  select.appendChild(defaultOpt);
+  for (const voice of voices) {
+    const opt = document.createElement('option');
+    opt.value = voice.voiceURI;
+    opt.textContent = `${voice.name} (${voice.lang})`;
+    select.appendChild(opt);
+  }
+  const hasCurrent = !!voices.find((voice) => voice.voiceURI === current);
+  if (!hasCurrent) {
+    state.ttsVoiceUri = '';
+  }
+  select.value = hasCurrent ? current : '';
+}
+
 function stopStockfishWorker() {
   if (!stockfishState.worker) {
     return;
@@ -912,7 +1145,7 @@ function stopStockfishWorker() {
 
 const ground = Chessground(elements.board, {
   orientation: 'white',
-  coordinates: false,
+  coordinates: state.showCoordinates,
   movable: {
     free: false,
     color: 'white',
@@ -972,7 +1205,7 @@ function transformPiecesForDisplay(realPieces) {
   }
 
   const transformed = new Map();
-  if (state.displayMode === 'no-pieces' || state.displayMode === 'no-pieces-no-marks') {
+  if (state.displayMode === 'no-pieces') {
     return transformed;
   }
 
@@ -1034,6 +1267,7 @@ function updateBoard() {
 
   ground.set({
     orientation: boardOrientation,
+    coordinates: state.showCoordinates,
     turnColor,
     highlight: {
       lastMove: !suppressVisualMarks,
@@ -1064,16 +1298,19 @@ function updateBoard() {
 }
 
 function shouldSuppressVisualMarks() {
-  if (state.revealPosition) {
-    return false;
+  if (!state.showMoveMarks) {
+    return true;
   }
   return state.displayMode === 'no-board'
-    || state.displayMode === 'no-pieces-no-marks'
     || state.sessionMode === 'blind-puzzles';
 }
 
 function syncRevealButtonUi() {
   elements.revealBtn.classList.toggle('is-on', state.revealPosition);
+  if (state.sessionMode === 'puzzle' && state.puzzle) {
+    elements.revealBtn.title = state.revealPosition ? 'Hide puzzle start position' : 'Show puzzle start position';
+    return;
+  }
   if (state.displayMode === 'no-board') {
     elements.revealBtn.title = state.revealPosition ? 'Hide board' : 'Show board';
     return;
@@ -1094,7 +1331,7 @@ function isBlindClickInputActive() {
   if (state.revealPosition) {
     return false;
   }
-  if (state.displayMode === 'no-pieces' || state.displayMode === 'no-pieces-no-marks') {
+  if (state.displayMode === 'no-pieces') {
     return true;
   }
   if (state.displayMode === 'white-only' && state.userColor === 'black') {
@@ -1348,7 +1585,10 @@ function sanToPolishSpeech(san) {
   } else if (san.includes('+') && state.speakCheck) {
     spoken += ' szach';
   }
-  return spoken.trim();
+  return spoken
+    .replace(/\bpion(?:ek)?\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function sanToEnglishSpeech(san) {
@@ -1632,6 +1872,7 @@ function trySkipContextToSolutionByInput(text) {
 async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
   state.puzzleAutoPlaying = false;
+  state.puzzleRevealPrevView = null;
   elements.moveInput.value = '';
   elements.loadPuzzleBtn.disabled = true;
   elements.statusText.textContent = 'Loading puzzle from Lichess...';
@@ -1722,6 +1963,7 @@ async function loadLichessPuzzle() {
   } catch (error) {
     state.sessionMode = 'game';
     state.puzzle = null;
+    state.puzzleRevealPrevView = null;
     state.puzzleViewIndex = 0;
     state.reviewPly = null;
     updatePuzzlePanel();
@@ -2242,7 +2484,7 @@ function speakBlindPrompt(text) {
     speechSynthesis.cancel();
   }
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'pl-PL';
+  applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -2262,7 +2504,7 @@ function speakBlindGameOverMessage(success) {
     speechSynthesis.cancel();
   }
   const utterance = new SpeechSynthesisUtterance(success ? 'brawo, koniec gry' : 'błąd, koniec gry');
-  utterance.lang = 'pl-PL';
+  applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -2615,7 +2857,7 @@ function speakPositionTask(task) {
       return parts.join(', ');
     });
   const utterance = new SpeechSynthesisUtterance(spokenTask);
-  utterance.lang = 'pl-PL';
+  applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -2670,7 +2912,7 @@ function speakGameTask(exercise) {
     .join('. ');
   const side = exercise.turn === 'w' ? 'biale zaczynaja' : 'czarne zaczynaja';
   const utterance = new SpeechSynthesisUtterance(`${movesSpoken}. ${side}.`);
-  utterance.lang = 'pl-PL';
+  applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -3176,6 +3418,14 @@ function uciFromMove(mv) {
   return `${mv.from}${mv.to}${mv.promotion ? mv.promotion : ''}`;
 }
 
+function looksLikePawnSanInput(moveRaw) {
+  const raw = String(moveRaw ?? '').trim();
+  const san = raw.replace(/[+#]/g, '');
+  return /^[a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san)
+    || /^[a-h]x[a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san)
+    || /^[a-h][a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san);
+}
+
 function normalizeMoveInput(inputRaw) {
   let move = inputRaw.trim();
   const spoken = move
@@ -3207,17 +3457,26 @@ function normalizeMoveInput(inputRaw) {
 
   if (state.moveLanguage === 'pl') {
     move = normalizePolishFigureWords(move);
-    move = move
-      .replace(/^([khwgs])/i, (_m, p1) => p1.toUpperCase())
-      .replace(/=([hwgs])/i, (_m, p1) => `=${p1.toUpperCase()}`);
-    move = polishToEnglishSan(move);
+    if (!looksLikePawnSanInput(move)) {
+      move = move
+        .replace(/^([khwgs])/i, (_m, p1) => p1.toUpperCase());
+      move = polishToEnglishSan(move);
+    }
+    move = move.replace(/=([hwgs])/gi, (_m, p1) => `=${({ h: 'q', w: 'r', g: 'b', s: 'n', H: 'q', W: 'r', G: 'b', S: 'n' }[p1] ?? p1)}`);
   }
 
   // Voice transcription may uppercase SAN (e.g. "NF3", "NBD2", "EXD5").
   // Normalize to canonical SAN casing.
   move = move.toLowerCase();
-  move = move.replace(/^([kqrbn])/, (_m, p1) => p1.toUpperCase());
+  if (!looksLikePawnSanInput(move)) {
+    move = move.replace(/^([kqrbn])/, (_m, p1) => p1.toUpperCase());
+  }
   move = move.replace(/=([qrbn])/g, (_m, p1) => `=${p1.toUpperCase()}`);
+  if (/^(o-o-o|ooo|0-0-0|000)$/i.test(move)) {
+    move = 'O-O-O';
+  } else if (/^(o-o|oo|0-0|00)$/i.test(move)) {
+    move = 'O-O';
+  }
 
   return { type: 'san', value: move };
 }
@@ -3259,6 +3518,22 @@ function findMatchingMove(text) {
         mv.piece === wantedPiece &&
         (!promotion || mv.promotion === promotion) &&
         (!capture || mv.flags.includes('c') || mv.flags.includes('e'))
+      );
+      if (candidates.length === 1) {
+        return candidates[0];
+      }
+    }
+
+    // Allow short pawn capture notation like "dc" / "dxc" when unique.
+    const shortPawnCap = stripped.toLowerCase().match(/^([a-h])x?([a-h])$/);
+    if (shortPawnCap) {
+      const fromFile = shortPawnCap[1];
+      const toFile = shortPawnCap[2];
+      const candidates = legal.filter((mv) =>
+        mv.piece === 'p'
+        && mv.from[0] === fromFile
+        && mv.to[0] === toFile
+        && (mv.flags.includes('c') || mv.flags.includes('e'))
       );
       if (candidates.length === 1) {
         return candidates[0];
@@ -3647,7 +3922,7 @@ function speakMoveIfEnabled(moveSan) {
   const utterance = new SpeechSynthesisUtterance(
     state.moveLanguage === 'pl' ? sanToPolishSpeech(moveSan) : sanToEnglishSpeech(moveSan)
   );
-  utterance.lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
+  applyTtsOptions(utterance, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -3668,7 +3943,7 @@ function speakPuzzleSolvedIfEnabled() {
     speechSynthesis.cancel();
   }
   const utterance = new SpeechSynthesisUtterance('brawo');
-  utterance.lang = 'pl-PL';
+  applyTtsOptions(utterance, 'pl-PL');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -3697,7 +3972,7 @@ function speakPuzzleContextIfEnabled(contextSans) {
     return;
   }
   const utterance = new SpeechSynthesisUtterance(spokenMoves.join('. '));
-  utterance.lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
+  applyTtsOptions(utterance, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
   utterance.onstart = () => {
     state.speaking = true;
     refreshVoiceListeningState();
@@ -3827,7 +4102,7 @@ function updateLastMove() {
 
   const last = hist.length ? hist[hist.length - 1] : null;
   if (!last) {
-    elements.lastMoveText.textContent = '-';
+    elements.lastMoveText.textContent = '';
     return;
   }
   const isBlackMove = hist.length % 2 === 0;
@@ -3919,7 +4194,8 @@ function applyRuntimeLayoutOverrides() {
         || state.blindPuzzles.mode === 'game-drill'
         || state.blindPuzzles.mode === 'kr-matting'
         || state.blindPuzzles.mode === 'kq-matting');
-    elements.reviewNav.style.setProperty('margin-top', blindStructured ? '2.9rem' : '0.8rem', 'important');
+    const gameDefault = state.sessionMode === 'game';
+    elements.reviewNav.style.setProperty('margin-top', (blindStructured || gameDefault) ? '2.9rem' : '0.8rem', 'important');
     elements.reviewPrevBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewNextBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewPrevBtn.style.setProperty('padding-top', '0.5rem', 'important');
@@ -3974,8 +4250,26 @@ function updateMainControlsVisibility() {
     || (inBlind && !inBlindVoiceControls);
   elements.moveInputs.hidden = hideMoveInputs;
   elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
-  elements.lastMoveRow.hidden = state.sessionMode !== 'game' || hideBelowSlider;
-  elements.statusRow.hidden = hideBelowSlider;
+  const hasLastMoveText = !!(elements.lastMoveText.textContent ?? '').trim();
+  const forceShowLastMoveInGame = state.sessionMode === 'game'
+    && (
+      state.displayMode === 'no-board'
+      || state.displayMode === 'no-pieces'
+      || state.displayMode === 'white-only'
+      || state.displayMode === 'black-only'
+    );
+  const showLastMoveRow = (forceShowLastMoveInGame || state.showLastMove) && hasLastMoveText;
+  elements.lastMoveRow.hidden = state.sessionMode !== 'game' || hideBelowSlider || !showLastMoveRow;
+  const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
+  document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
+  const newGamePending = state.sessionMode === 'game' && !state.gameStarted && !hideBelowSlider;
+  document.body.classList.toggle('new-game-pending', newGamePending);
+  const hideStatusForLastMove = state.sessionMode === 'game'
+    && state.gameStarted
+    && !elements.lastMoveRow.hidden
+    && hasLastMoveText;
+  elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
+  document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
 }
 
 function updateSquareColorControlsVisibility() {
@@ -4014,6 +4308,49 @@ function updateMoveInputPlaceholder() {
   elements.moveInput.placeholder = state.moveLanguage === 'pl'
     ? 'Wpisz ruch (np. Sf3 albo e2e4)'
     : 'Enter move (e.g. Nf3 or e2e4)';
+}
+
+function playTtsSample() {
+  if (typeof speechSynthesis === 'undefined') {
+    elements.statusText.textContent = 'TTS is not supported in this browser.';
+    return;
+  }
+  if (state.speaking) {
+    speechSynthesis.cancel();
+  }
+  const sampleSans = [
+    'e4', 'd4', 'c4', 'Nf3', 'Nc3', 'Bb5', 'Bc4', 'Qh5', 'Qxa3', 'Ng5',
+    'exf4', 'dxe5', 'Rxa7', 'Bxh7+', 'Qe2', 'O-O', 'O-O-O'
+  ];
+  const spokenMoves = [];
+  let prevSan = '';
+  for (let i = 0; i < 6; i += 1) {
+    let san = sampleSans[Math.floor(Math.random() * sampleSans.length)];
+    if (sampleSans.length > 1 && san === prevSan) {
+      san = sampleSans[(sampleSans.indexOf(san) + 1) % sampleSans.length];
+    }
+    prevSan = san;
+    const spoken = state.moveLanguage === 'pl' ? sanToPolishSpeech(san) : sanToEnglishSpeech(san);
+    if (spoken) {
+      spokenMoves.push(spoken);
+    }
+  }
+  if (!spokenMoves.length) {
+    return;
+  }
+  const text = spokenMoves.join('. ');
+  const lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
+  const utterance = new SpeechSynthesisUtterance(text);
+  applyTtsOptions(utterance, lang);
+  utterance.onstart = () => {
+    state.speaking = true;
+    refreshVoiceListeningState();
+  };
+  utterance.onend = () => {
+    state.speaking = false;
+    refreshVoiceListeningState();
+  };
+  speechSynthesis.speak(utterance);
 }
 
 function pieceTokenForInput(role) {
@@ -4233,6 +4570,7 @@ function resetGame() {
   }
   state.sessionMode = 'game';
   state.puzzle = null;
+  state.puzzleRevealPrevView = null;
   state.puzzleAutoPlaying = false;
   state.puzzleViewIndex = 0;
   state.reviewPly = null;
@@ -4306,6 +4644,7 @@ elements.moveLanguage.addEventListener('change', () => {
   state.moveLanguage = elements.moveLanguage.value;
   updateMoveInputPlaceholder();
   syncMoveAssistPieces();
+  populateTtsVoices();
   writeSettings();
   updateMovesList();
   updateLastMove();
@@ -4329,6 +4668,25 @@ elements.showBlindDests.addEventListener('change', () => {
   writeSettings();
 });
 
+elements.showCoordinates.addEventListener('change', () => {
+  state.showCoordinates = elements.showCoordinates.checked;
+  updateBoard();
+  writeSettings();
+});
+
+elements.showLastMove.addEventListener('change', () => {
+  state.showLastMove = elements.showLastMove.checked;
+  updateMainControlsVisibility();
+  writeSettings();
+});
+
+elements.showMoveMarks.addEventListener('change', () => {
+  state.showMoveMarks = elements.showMoveMarks.checked;
+  clearBlindClickSelection();
+  updateBoard();
+  writeSettings();
+});
+
 elements.darkMode.addEventListener('change', () => {
   state.darkMode = elements.darkMode.checked;
   applyTheme();
@@ -4340,6 +4698,24 @@ elements.showOnScreenKeyboard.addEventListener('change', () => {
   syncMoveInputMode();
   updateMoveAssistVisibility();
   writeSettings();
+});
+
+elements.ttsVoice.addEventListener('change', () => {
+  state.ttsVoiceUri = elements.ttsVoice.value;
+  writeSettings();
+});
+
+elements.ttsRate.addEventListener('input', () => {
+  const value = Number(elements.ttsRate.value);
+  const bounded = Number.isFinite(value) ? Math.max(0.1, Math.min(1.5, value)) : 1;
+  state.ttsRate = bounded;
+  elements.ttsRate.value = String(bounded);
+  elements.ttsRateValue.textContent = `${bounded.toFixed(1)}x`;
+  writeSettings();
+});
+
+elements.ttsSampleBtn.addEventListener('click', () => {
+  playTtsSample();
 });
 
 elements.speakCheck.addEventListener('change', () => {
@@ -4393,10 +4769,12 @@ elements.puzzleBacktrack.addEventListener('input', () => {
 });
 
 function syncMovesVisibilityUi() {
-  const forceVisible = state.sessionMode === 'puzzle';
-  elements.movesWrap.style.display = (state.movesVisible || forceVisible) ? 'block' : 'none';
-  elements.toggleMovesBtn.hidden = forceVisible;
-  elements.toggleMovesBtn.textContent = state.movesVisible ? 'Hide Moves' : 'Show Moves';
+  elements.movesWrap.style.display = state.movesVisible ? 'block' : 'none';
+  elements.toggleMovesBtn.hidden = false;
+  const label = state.movesVisible ? 'Hide moves' : 'Show moves';
+  elements.toggleMovesBtn.setAttribute('aria-label', label);
+  elements.toggleMovesBtn.title = label;
+  elements.toggleMovesBtn.classList.toggle('is-on', state.movesVisible);
 }
 
 elements.toggleMovesBtn.addEventListener('click', () => {
@@ -4405,6 +4783,31 @@ elements.toggleMovesBtn.addEventListener('click', () => {
 });
 
 elements.revealBtn.addEventListener('click', () => {
+  if (state.sessionMode === 'puzzle' && state.puzzle) {
+    if (!state.revealPosition) {
+      state.puzzleRevealPrevView = state.puzzleViewIndex;
+      state.revealPosition = true;
+      state.puzzleViewIndex = state.puzzle.startPly;
+      if (!syncPuzzleGameToView()) {
+        elements.statusText.textContent = 'Cannot show puzzle start position.';
+        state.revealPosition = false;
+        state.puzzleViewIndex = state.puzzleRevealPrevView ?? puzzleProgressAbsPly();
+        state.puzzleRevealPrevView = null;
+      }
+      updateAll();
+      return;
+    }
+    state.revealPosition = false;
+    state.puzzleViewIndex = Number.isInteger(state.puzzleRevealPrevView)
+      ? state.puzzleRevealPrevView
+      : puzzleProgressAbsPly();
+    state.puzzleRevealPrevView = null;
+    if (!syncPuzzleGameToView()) {
+      elements.statusText.textContent = 'Cannot restore puzzle view.';
+    }
+    updateAll();
+    return;
+  }
   state.revealPosition = !state.revealPosition;
   clearBlindClickSelection();
   updateBoard();
@@ -4524,6 +4927,14 @@ window.addEventListener('pointerdown', (event) => {
   updateMoveAssistVisibility();
 });
 
+if (typeof speechSynthesis !== 'undefined') {
+  if (typeof speechSynthesis.addEventListener === 'function') {
+    speechSynthesis.addEventListener('voiceschanged', populateTtsVoices);
+  } else {
+    speechSynthesis.onvoiceschanged = populateTtsVoices;
+  }
+}
+
 elements.voiceOnceBtn.addEventListener('click', () => {
   const oneShotOn = state.voiceMode && state.voiceOneShot;
   if (oneShotOn) {
@@ -4544,18 +4955,24 @@ elements.voiceStickyBtn.addEventListener('click', () => {
   setVoiceMode(true);
 });
 
-ensureStockfishWorker();
-state.positionExercises = buildPositionExercises();
-state.positionSolved = readSolvedPositions();
-state.gameExercises = buildGameExercises();
-state.gameSolved = readSolvedGames();
-loadSettingsIntoState();
-syncEngineControlUi();
-applySettingsToUi();
-updateMoveInputPlaceholder();
-syncMoveAssistPieces();
-updateVoiceUi();
-syncMovesVisibilityUi();
-syncMoveInputMode();
-updateAll();
-window.setTimeout(blurAnyFocusedInput, 0);
+async function bootstrapApp() {
+  await hydratePersistentStorage();
+  ensureStockfishWorker();
+  state.positionExercises = buildPositionExercises();
+  state.positionSolved = readSolvedPositions();
+  state.gameExercises = buildGameExercises();
+  state.gameSolved = readSolvedGames();
+  loadSettingsIntoState();
+  populateTtsVoices();
+  syncEngineControlUi();
+  applySettingsToUi();
+  updateMoveInputPlaceholder();
+  syncMoveAssistPieces();
+  updateVoiceUi();
+  syncMovesVisibilityUi();
+  syncMoveInputMode();
+  updateAll();
+  window.setTimeout(blurAnyFocusedInput, 0);
+}
+
+void bootstrapApp();
