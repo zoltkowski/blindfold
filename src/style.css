@@ -437,12 +437,12 @@ button:hover {
 }
 
 .assist-btn {
-  min-height: 2rem;
+  min-height: 2.7rem;
   padding: 0.3rem 0.2rem;
 }
 
 .assist-piece-btn {
-  min-height: 1.75rem;
+  min-height: 2.5rem;
   padding: 0.2rem 0.15rem;
   font-size: 0.9rem;
 }
@@ -858,12 +858,12 @@ body.puzzle-mode .moves-wrap {
   }
 
   .assist-btn {
-    min-height: 1.45rem;
+    min-height: 2rem;
     padding: 0.12rem;
   }
 
   .assist-piece-btn {
-    min-height: 1.35rem;
+    min-height: 1.9rem;
     padding: 0.1rem;
     font-size: 0.8rem;
   }
