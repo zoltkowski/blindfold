@@ -250,6 +250,11 @@ button:hover {
   margin-top: 0.35rem;
 }
 
+#puzzleContext {
+  display: block;
+  min-height: calc(1.35em * 3);
+}
+
 .puzzle-panel[hidden] {
   display: none !important;
 }
@@ -490,7 +495,8 @@ body.new-game-pending #statusText {
   max-width: 100%;
 }
 
-#showSolutionBtn {
+#showSolutionBtn,
+#openPuzzleLinkBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -502,11 +508,16 @@ body.new-game-pending #statusText {
   padding: 0;
 }
 
-#showSolutionBtn svg {
+#showSolutionBtn svg,
+#openPuzzleLinkBtn svg {
   width: 1.05rem;
   height: 1.05rem;
   display: block;
   pointer-events: none;
+}
+
+#openPuzzleLinkBtn {
+  color: #6f7882;
 }
 
 body.blind-structured-mode #statusRow {
@@ -649,6 +660,11 @@ body.puzzle-mode .moves-wrap {
 
 .move-token.active-move {
   background: #e8f3de;
+  font-weight: 700;
+}
+
+.puzzle-wrong-inline {
+  color: #b42323;
   font-weight: 700;
 }
 
@@ -945,6 +961,12 @@ body.puzzle-mode .moves-wrap {
     margin-right: 5.7rem;
     margin-bottom: 0.4rem;
   }
+  body.puzzle-mode #openPuzzleLinkBtn {
+    float: right;
+    margin-top: -2.6rem !important;
+    margin-right: 8.1rem;
+    margin-bottom: 0.4rem;
+  }
 
   body.game-default-view #toggleMovesBtn {
     margin-top: -2.6rem !important;
@@ -979,6 +1001,10 @@ body.puzzle-mode .moves-wrap {
   }
 
   body.puzzle-mode #showSolutionBtn {
+    margin-top: -2.6rem !important;
+    margin-bottom: 0.4rem;
+  }
+  body.puzzle-mode #openPuzzleLinkBtn {
     margin-top: -2.6rem !important;
     margin-bottom: 0.4rem;
   }
@@ -1048,6 +1074,9 @@ body.puzzle-mode .moves-wrap {
   body.puzzle-mode #showSolutionBtn {
     min-height: 2.2rem;
   }
+  body.puzzle-mode #openPuzzleLinkBtn {
+    min-height: 2.2rem;
+  }
 
   .review-nav {
     clear: both;
@@ -1077,6 +1106,10 @@ body.puzzle-mode .moves-wrap {
 }
 
 @media (orientation: landscape) {
+  .moves-wrap {
+    border: none;
+  }
+
   body.game-default-view #statusRow,
   body.game-default-view #lastMoveRow {
     min-height: 1.9rem !important;
@@ -1158,6 +1191,12 @@ body.puzzle-mode .moves-wrap {
   body.puzzle-mode #showSolutionBtn {
     position: absolute !important;
     right: 5.7rem !important;
+    top: -3.55rem !important;
+    min-height: 3.2rem;
+  }
+  body.puzzle-mode #openPuzzleLinkBtn {
+    position: absolute !important;
+    right: 8.1rem !important;
     top: -3.55rem !important;
     min-height: 3.2rem;
   }

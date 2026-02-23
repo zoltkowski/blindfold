@@ -21,7 +21,7 @@ app.innerHTML = `
         <div class="board-actions-main">
           <button id="newGameBtn" type="button">New Game</button>
           <button id="loadPuzzleBtn" type="button">Lichess Puzzle</button>
-          <button id="blindPuzzlesBtn" type="button">Blind Puzzles</button>
+          <button id="blindPuzzlesBtn" type="button">Other Puzzles</button>
         </div>
         <button id="revealBtn" class="icon-eye-btn" type="button" aria-label="Reveal position" title="Reveal position">👁</button>
       </div>
@@ -38,7 +38,7 @@ app.innerHTML = `
             <option value="same-pieces">Same Color Pieces</option>
             <option value="different-disks">Different Color Disks</option>
             <option value="same-disks">Same Color Disks</option>
-            <option value="no-pieces">No Pieces Only</option>
+            <option value="no-pieces">No Pieces</option>
             <option value="no-board">No Board</option>
             <option value="white-only">Show White, Hide Black</option>
             <option value="black-only">Show Black, Hide White</option>
@@ -142,7 +142,6 @@ app.innerHTML = `
       </div>
 
       <div class="puzzle-panel" id="puzzlePanel" hidden>
-        <div class="puzzle-head-row"><span><strong>Puzzle:</strong> <span id="puzzleMeta">-</span></span></div>
         <div><span id="puzzleContext">-</span></div>
       </div>
 
@@ -234,6 +233,11 @@ app.innerHTML = `
             <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>
           </svg>
         </button>
+        <a id="openPuzzleLinkBtn" href="#" target="_blank" rel="noopener noreferrer" hidden aria-label="Open puzzle on Lichess" title="Open puzzle on Lichess">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M10.457 6.161a.237.237 0 0 0-.296.165c-.8 2.785 2.819 5.579 5.214 7.428.653.504 1.216.939 1.591 1.292 1.745 1.642 2.564 2.851 2.733 3.178a.24.24 0 0 0 .275.122c.047-.013 4.726-1.3 3.934-4.574a.257.257 0 0 0-.023-.06L18.204 3.407 18.93.295a.24.24 0 0 0-.262-.293c-1.7.201-3.115.435-4.5 1.425-4.844-.323-8.718.9-11.213 3.539C.334 7.737-.246 11.515.085 14.128c.763 5.655 5.191 8.631 9.081 9.532.993.229 1.974.34 2.923.34 3.344 0 6.297-1.381 7.946-3.85a.24.24 0 0 0-.372-.3c-3.411 3.527-9.002 4.134-13.296 1.444-4.485-2.81-6.202-8.41-3.91-12.749C4.741 4.221 8.801 2.362 13.888 3.31c.056.01.115 0 .165-.029l.335-.197c.926-.546 1.961-1.157 2.873-1.279l-.694 1.993a.243.243 0 0 0 .02.202l6.082 10.192c-.193 2.028-1.706 2.506-2.226 2.611-.287-.645-.814-1.364-2.306-2.803-.422-.407-1.21-.941-2.124-1.56-2.364-1.601-5.937-4.02-5.391-5.984a.239.239 0 0 0-.165-.295z"></path>
+          </svg>
+        </a>
         <button id="showSolutionBtn" type="button" hidden disabled aria-label="Show solution" title="Show solution">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
             <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.3 1 2.2h5.2c0-.9.4-1.7 1-2.2A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -293,8 +297,8 @@ const elements = {
   puzzleDifficulty: document.getElementById('puzzleDifficulty'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
   blindPuzzlesBtn: document.getElementById('blindPuzzlesBtn'),
+  openPuzzleLinkBtn: document.getElementById('openPuzzleLinkBtn'),
   showSolutionBtn: document.getElementById('showSolutionBtn'),
-  puzzleMeta: document.getElementById('puzzleMeta'),
   puzzleContext: document.getElementById('puzzleContext'),
   blindPanel: document.getElementById('blindPanel'),
   blindGameBtn: document.getElementById('blindGameBtn'),
@@ -492,6 +496,8 @@ const state = {
   puzzleAutoOpponent: true,
   puzzleDifficulty: 'easiest',
   blindQuestionCount: 25,
+  puzzleBacktrack: 2,
+  puzzleLastAttempt: null,
   blindPuzzles: {
     mode: null,
     running: false,
@@ -948,7 +954,8 @@ function writeSettings() {
     ttsRate: state.ttsRate,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleDifficulty: state.puzzleDifficulty,
-    blindQuestionCount: state.blindQuestionCount
+    blindQuestionCount: state.blindQuestionCount,
+    puzzleBacktrack: state.puzzleBacktrack
   };
   void writePersistentValue(SETTINGS_KEY, payload);
 }
@@ -980,6 +987,9 @@ function loadSettingsIntoState() {
   }
   if (Number.isFinite(Number(saved.blindQuestionCount))) {
     state.blindQuestionCount = Math.max(1, Math.min(30, Math.floor(Number(saved.blindQuestionCount))));
+  }
+  if (Number.isFinite(Number(saved.puzzleBacktrack))) {
+    state.puzzleBacktrack = Math.max(1, Math.min(32, Math.floor(Number(saved.puzzleBacktrack))));
   }
   if (typeof saved.showBlindDests === 'boolean') {
     state.showBlindDests = saved.showBlindDests;
@@ -1026,9 +1036,8 @@ function applySettingsToUi() {
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
   elements.blindQuestionCountValue.textContent = String(state.blindQuestionCount);
-  elements.puzzleBacktrackValue.textContent = String(
-    Math.max(1, Math.min(32, Math.floor(Number(elements.puzzleBacktrack.value) || 2)))
-  );
+  elements.puzzleBacktrack.value = String(state.puzzleBacktrack);
+  elements.puzzleBacktrackValue.textContent = String(state.puzzleBacktrack);
 
   const saved = readSettings();
   if (saved) {
@@ -1146,6 +1155,7 @@ function stopStockfishWorker() {
 const ground = Chessground(elements.board, {
   orientation: 'white',
   coordinates: state.showCoordinates,
+  coordinatesOnSquares: state.showCoordinates,
   movable: {
     free: false,
     color: 'white',
@@ -1264,10 +1274,14 @@ function updateBoard() {
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
   const boardInputEnabled = state.sessionMode !== 'game' || state.gameStarted;
+  const shouldShowCoordinates = state.showCoordinates;
+  const needsCoordsRebuild = ground.state.coordinates !== shouldShowCoordinates
+    || ground.state.coordinatesOnSquares !== shouldShowCoordinates;
 
   ground.set({
     orientation: boardOrientation,
-    coordinates: state.showCoordinates,
+    coordinates: shouldShowCoordinates,
+    coordinatesOnSquares: shouldShowCoordinates,
     turnColor,
     highlight: {
       lastMove: !suppressVisualMarks,
@@ -1294,6 +1308,9 @@ function updateBoard() {
     lastMove: suppressVisualMarks ? undefined : lastMoveSquares(boardGame),
     pieces
   });
+  if (needsCoordsRebuild) {
+    ground.redrawAll();
+  }
   syncBlindClickDots();
 }
 
@@ -1648,25 +1665,20 @@ function formatSanLineFromList(sans, startPly = 0) {
 function updatePuzzlePanel() {
   if (!state.puzzle) {
     elements.puzzlePanel.hidden = true;
-    elements.puzzleMeta.textContent = '-';
     elements.puzzleContext.textContent = '-';
+    elements.openPuzzleLinkBtn.hidden = true;
+    elements.openPuzzleLinkBtn.removeAttribute('href');
     elements.showSolutionBtn.hidden = true;
     elements.showSolutionBtn.disabled = true;
     return;
   }
 
   elements.puzzlePanel.hidden = false;
+  elements.openPuzzleLinkBtn.hidden = false;
   elements.showSolutionBtn.hidden = false;
   const p = state.puzzle;
   const solvedSolutionCount = Math.max(0, p.solutionIndex - p.contextMoves.length);
-  elements.puzzleMeta.innerHTML = '';
-  const puzzleLink = document.createElement('a');
-  puzzleLink.href = `https://lichess.org/training/${p.id}`;
-  puzzleLink.target = '_blank';
-  puzzleLink.rel = 'noopener noreferrer';
-  puzzleLink.textContent = p.id;
-  elements.puzzleMeta.appendChild(puzzleLink);
-  elements.puzzleMeta.append(` | rating ${p.rating}`);
+  elements.openPuzzleLinkBtn.href = `https://lichess.org/training/${p.id}`;
   const contextLine = formatSanLineFromList(p.contextSans, p.contextStartPly);
   const shownSolutionSans = p.revealSolutionText
     ? p.solutionSans
@@ -1680,6 +1692,12 @@ function updatePuzzlePanel() {
     elements.puzzleContext.textContent = contextLine;
   } else {
     elements.puzzleContext.textContent = solutionLine;
+  }
+  if (state.puzzleLastAttempt?.wrong && state.puzzleLastAttempt.text) {
+    const wrong = document.createElement('span');
+    wrong.className = 'puzzle-wrong-inline';
+    wrong.textContent = ` ${state.puzzleLastAttempt.text}`;
+    elements.puzzleContext.appendChild(wrong);
   }
   elements.showSolutionBtn.disabled = p.solved || state.puzzleAutoPlaying;
 }
@@ -1873,6 +1891,7 @@ async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
   state.puzzleAutoPlaying = false;
   state.puzzleRevealPrevView = null;
+  state.puzzleLastAttempt = null;
   elements.moveInput.value = '';
   elements.loadPuzzleBtn.disabled = true;
   elements.statusText.textContent = 'Loading puzzle from Lichess...';
@@ -1901,8 +1920,7 @@ async function loadLichessPuzzle() {
       throw new Error('Could not align puzzle solution with game PGN');
     }
     const startPly = resolved.startPly;
-    const backtrackRaw = Number(elements.puzzleBacktrack.value);
-    const backtrack = Number.isFinite(backtrackRaw) ? Math.max(1, Math.min(32, Math.floor(backtrackRaw))) : 2;
+    const backtrack = state.puzzleBacktrack;
     elements.puzzleBacktrack.value = String(backtrack);
     elements.puzzleBacktrackValue.textContent = String(backtrack);
     const contextStartPly = Math.max(0, startPly - backtrack);
@@ -1964,6 +1982,7 @@ async function loadLichessPuzzle() {
     state.sessionMode = 'game';
     state.puzzle = null;
     state.puzzleRevealPrevView = null;
+    state.puzzleLastAttempt = null;
     state.puzzleViewIndex = 0;
     state.reviewPly = null;
     updatePuzzlePanel();
@@ -2817,7 +2836,7 @@ function startBlindPuzzlesMode() {
   state.revealPosition = false;
   clearBlindClickSelection();
   updateAll();
-  elements.statusText.textContent = 'Choose a blind puzzle.';
+  elements.statusText.textContent = 'Choose a puzzle.';
 }
 
 function nextUnsolvedPositionIndex() {
@@ -3569,6 +3588,19 @@ function findLooseExpectedPuzzleMove(text) {
   return inputLoose === expectedLoose ? expectedMove : null;
 }
 
+function puzzleWrongMoveStatus(text) {
+  const entered = String(text ?? '').trim();
+  return entered ? `Wrong move (${entered}).` : 'Wrong move.';
+}
+
+function setPuzzleLastAttempt(text) {
+  if (state.sessionMode !== 'puzzle' || !state.puzzle) {
+    return;
+  }
+  const entered = String(text ?? '').trim();
+  state.puzzleLastAttempt = entered ? { text: entered, wrong: true } : null;
+}
+
 function applyPlayerMove(text) {
   if (state.sessionMode === 'game' && !state.gameStarted) {
     elements.statusText.textContent = 'Press New Game to start.';
@@ -3612,7 +3644,9 @@ function applyPlayerMove(text) {
   }
   if (!match) {
     if (state.sessionMode === 'puzzle' && state.puzzle && !state.puzzle.solved) {
-      elements.statusText.textContent = 'Wrong move.';
+      setPuzzleLastAttempt(text);
+      elements.statusText.textContent = puzzleWrongMoveStatus(text);
+      updatePuzzlePanel();
     }
     restorePuzzleView();
     return false;
@@ -3632,10 +3666,13 @@ function applyPlayerMove(text) {
       expectedUci = currentPuzzleExpectedUci();
     }
     if (!expectedUci || playedUci !== expectedUci) {
-      elements.statusText.textContent = 'Wrong move.';
+      setPuzzleLastAttempt(text);
+      elements.statusText.textContent = puzzleWrongMoveStatus(text);
+      updatePuzzlePanel();
       restorePuzzleView();
       return false;
     }
+    state.puzzleLastAttempt = null;
     state.puzzle.solutionIndex += 1;
   }
 
@@ -4764,8 +4801,10 @@ elements.puzzleBacktrack.addEventListener('input', () => {
   const bounded = Number.isFinite(value)
     ? Math.max(1, Math.min(32, Math.floor(value)))
     : 2;
+  state.puzzleBacktrack = bounded;
   elements.puzzleBacktrack.value = String(bounded);
   elements.puzzleBacktrackValue.textContent = String(bounded);
+  writeSettings();
 });
 
 function syncMovesVisibilityUi() {
