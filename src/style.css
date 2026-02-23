@@ -247,20 +247,6 @@ button:hover {
 
 #puzzlePanel {
   margin-top: 0.35rem;
-  position: relative;
-  padding-right: 6.2rem;
-}
-
-#puzzlePanel #showSolutionBtn {
-  position: absolute;
-  right: 0.7rem;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-top: 0.12rem;
-  width: 5.1rem;
-  white-space: normal;
-  line-height: 1.1;
-  text-align: center;
 }
 
 .puzzle-panel[hidden] {
@@ -275,6 +261,115 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
+}
+
+.blind-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.blind-stats {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.blind-prompt {
+  justify-self: end;
+  text-align: right;
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.15;
+  min-width: 3ch;
+  white-space: pre-line;
+}
+
+.blind-panel.square-color-layout .blind-prompt {
+  font-size: 3.4rem;
+  line-height: 1;
+  justify-self: center;
+  text-align: center;
+}
+
+.blind-panel.square-color-layout .blind-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.blind-panel.movement-layout .blind-prompt {
+  font-size: 3.4rem;
+  line-height: 1;
+  justify-self: center;
+  text-align: center;
+}
+
+.blind-panel.movement-layout .blind-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.blind-panel.check-layout .blind-prompt {
+  font-size: 2rem;
+  line-height: 1.1;
+  justify-self: center;
+  text-align: center;
+}
+
+.blind-panel.check-layout .blind-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.blind-panel.position-layout .blind-prompt {
+  justify-self: start;
+  text-align: left;
+  width: 100%;
+  order: -1;
+  margin-bottom: 0.2rem;
+  line-height: 1.45;
+}
+
+.blind-panel.position-layout .blind-main {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.blind-panel.matting-layout .blind-prompt {
+  justify-self: start;
+  text-align: left;
+  width: 100%;
+  line-height: 1.45;
+}
+
+.blind-panel.game-drill-layout .blind-prompt {
+  justify-self: start;
+  text-align: left;
+  width: 100%;
+  order: -1;
+  margin-bottom: 0.2rem;
+}
+
+.blind-panel.game-drill-layout .blind-main {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.blind-input-feedback {
+  margin-top: 0.35rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.blind-token {
+  display: inline-block;
+  font-weight: 700;
+}
+
+.blind-token.is-good {
+  color: #1f7a34;
+}
+
+.blind-token.is-bad,
+.blind-token.is-missing {
+  color: #b42323;
 }
 
 .puzzle-nav {
@@ -357,6 +452,64 @@ button:hover {
 
 .status-row {
   margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+#statusText {
+  min-width: 0;
+  flex: 1;
+}
+
+#statusRow #showSolutionBtn {
+  margin-left: auto;
+  width: 5.1rem;
+  white-space: normal;
+  line-height: 1.1;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+body.blind-structured-mode #statusRow {
+  justify-content: flex-start;
+}
+
+body.blind-structured-mode #statusText {
+  flex: 1;
+  text-align: left;
+}
+
+.square-color-controls {
+  margin-top: 0.45rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.square-color-controls > button {
+  min-height: 3rem;
+  font-weight: 700;
+}
+
+#squareColorWhiteBtn {
+  background: #f0d9b5;
+  border-color: #d6bb8b;
+  color: #2c2315;
+}
+
+#squareColorWhiteBtn:hover {
+  background: #e8cfa7;
+}
+
+#squareColorBlackBtn {
+  background: #b58863;
+  border-color: #8e6545;
+  color: #fffaf2;
+}
+
+#squareColorBlackBtn:hover {
+  background: #a67853;
 }
 
 .last-move-row {
@@ -390,7 +543,7 @@ button:hover {
 }
 
 .moves-wrap {
-  margin: 0.6rem 0 0;
+  margin: 0.85rem 0 0;
   max-height: 280px;
   overflow: auto;
   border: 1px solid #d0c5ac;
@@ -676,6 +829,36 @@ body.puzzle-mode .moves-wrap {
 }
 
 @media (orientation: portrait) {
+  body.blind-structured-mode #statusRow {
+    margin-top: 0.8rem !important;
+  }
+
+  body.blind-structured-mode #movesPanel {
+    margin-top: 0.55rem !important;
+  }
+
+  body.blind-structured-mode #toggleMovesBtn {
+    margin-top: -2.45rem !important;
+    margin-bottom: 0.4rem;
+  }
+
+  body.blind-structured-mode .review-nav {
+    margin-top: 2.9rem !important;
+  }
+
+  body.blind-structured-mode #statusRow {
+    padding-right: 5.9rem !important;
+  }
+
+  body.blind-mode #statusRow,
+  body.blind-mode #lastMoveRow {
+    padding-right: 0;
+  }
+
+  body.puzzle-mode #statusRow {
+    padding-right: 0 !important;
+  }
+
   body.puzzle-mode .layout {
     gap: 0.12rem;
   }
@@ -711,7 +894,7 @@ body.puzzle-mode .moves-wrap {
 
   #statusRow,
   #lastMoveRow {
-    padding-right: 4.8rem;
+    padding-right: 5.9rem;
   }
 
   #movesPanel {
@@ -721,7 +904,7 @@ body.puzzle-mode .moves-wrap {
   #toggleMovesBtn {
     float: right;
     margin-top: -2.9rem;
-    width: 4.2rem;
+    width: 5.3rem;
     min-height: 2.2rem;
     height: auto;
     display: inline-flex;
@@ -747,7 +930,7 @@ body.puzzle-mode .moves-wrap {
 
   #puzzlePanel {
     margin-top: -0.45rem;
-    padding: 0 5.6rem 0 0;
+    padding: 0;
     border: none;
     background: transparent;
   }
@@ -762,6 +945,26 @@ body.puzzle-mode .moves-wrap {
 }
 
 @media (orientation: landscape) {
+  body.blind-structured-mode #movesPanel {
+    margin-top: 0.28rem !important;
+  }
+
+  body.blind-structured-mode #toggleMovesBtn {
+    top: -3.7rem !important;
+  }
+
+  body.blind-structured-mode .review-nav {
+    margin-top: 1.75rem;
+  }
+
+  body.blind-structured-mode #statusRow {
+    padding-right: 5.9rem !important;
+  }
+
+  body.puzzle-mode #statusRow {
+    padding-right: 0 !important;
+  }
+
   html,
   body,
   #app {
@@ -775,7 +978,7 @@ body.puzzle-mode .moves-wrap {
 
   #statusRow,
   #lastMoveRow {
-    padding-right: 4.8rem;
+    padding-right: 5.9rem;
   }
 
   #movesPanel {
@@ -787,7 +990,7 @@ body.puzzle-mode .moves-wrap {
     position: absolute !important;
     right: 0 !important;
     top: -3.95rem !important;
-    width: 4.2rem;
+    width: 5.3rem;
     min-height: 3.2rem;
     height: auto;
     white-space: normal;

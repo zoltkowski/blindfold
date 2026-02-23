@@ -108,20 +108,20 @@ app.innerHTML = `
               </select>
             </label>
             <label>
-              Blind Puzzle Questions
-              <input id="blindQuestionCount" type="number" min="1" max="200" step="1" value="25" />
+              <span class="engine-meta"><span>Blind Puzzle Questions</span>: <span id="blindQuestionCountValue">25</span></span>
+              <input id="blindQuestionCount" type="range" min="1" max="30" step="1" value="25" />
             </label>
             <label>
-              Puzzle Backtrack (plies)
-              <input id="puzzleBacktrack" type="number" min="0" max="20" step="1" value="2" />
+              <span class="engine-meta"><span>Puzzle Backtrack (plies)</span>: <span id="puzzleBacktrackValue">2</span></span>
+              <input id="puzzleBacktrack" type="range" min="1" max="32" step="1" value="2" />
             </label>
           </div>
         </div>
       </div>
 
       <div class="puzzle-panel" id="puzzlePanel" hidden>
-        <div class="puzzle-head-row"><span><strong>Puzzle:</strong> <span id="puzzleMeta">-</span></span><button id="showSolutionBtn" type="button" disabled>Show Solution</button></div>
-        <div><strong>Moves:</strong> <span id="puzzleContext">-</span></div>
+        <div class="puzzle-head-row"><span><strong>Puzzle:</strong> <span id="puzzleMeta">-</span></span></div>
+        <div><span id="puzzleContext">-</span></div>
       </div>
 
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
@@ -135,10 +135,18 @@ app.innerHTML = `
           <button id="blindPositionBtn" type="button">Position</button>
           <button id="blindGameBtn" type="button">Game</button>
         </div>
-        <div><strong>Position:</strong> <span id="blindPrompt">-</span></div>
-        <div><strong>Progress:</strong> <span id="blindProgress">-</span></div>
-        <div><strong>Correct:</strong> <span id="blindCorrect">0</span></div>
-        <div><strong>Time:</strong> <span id="blindTimer">00:00</span></div>
+        <div id="blindMain" class="blind-main">
+          <div class="blind-stats">
+            <div><strong>Progress:</strong> <span id="blindProgress">-</span></div>
+            <div><strong>Correct:</strong> <span id="blindCorrect">0</span></div>
+            <div><strong>Time:</strong> <span id="blindTimer">00:00</span></div>
+          </div>
+          <div id="blindPrompt" class="blind-prompt">-</div>
+        </div>
+        <div id="blindInputFeedback" class="blind-input-feedback" hidden>
+          <div><strong>Entered:</strong> <span id="blindEntered">-</span></div>
+          <div><strong>Missing:</strong> <span id="blindMissing">-</span></div>
+        </div>
       </div>
 
       <div id="moveInputs" class="move-inputs">
@@ -188,8 +196,12 @@ app.innerHTML = `
       </div>
 
       <div id="statusRow" class="status-row">
-        <strong>Status:</strong>
         <span id="statusText">White to move</span>
+        <button id="showSolutionBtn" type="button" hidden disabled>Show Solution</button>
+      </div>
+      <div id="squareColorControls" class="square-color-controls" hidden>
+        <button id="squareColorWhiteBtn" type="button">White</button>
+        <button id="squareColorBlackBtn" type="button">Black</button>
       </div>
       <div id="lastMoveRow" class="last-move-row">
         <strong>Last move:</strong>
@@ -238,7 +250,9 @@ const elements = {
   showOnScreenKeyboard: document.getElementById('showOnScreenKeyboard'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
+  puzzleBacktrackValue: document.getElementById('puzzleBacktrackValue'),
   blindQuestionCount: document.getElementById('blindQuestionCount'),
+  blindQuestionCountValue: document.getElementById('blindQuestionCountValue'),
   puzzleAutoOpponent: document.getElementById('puzzleAutoOpponent'),
   puzzleDifficulty: document.getElementById('puzzleDifficulty'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
@@ -256,6 +270,10 @@ const elements = {
   blindKRookBtn: document.getElementById('blindKRookBtn'),
   blindKQueenBtn: document.getElementById('blindKQueenBtn'),
   blindPrompt: document.getElementById('blindPrompt'),
+  blindMain: document.getElementById('blindMain'),
+  blindInputFeedback: document.getElementById('blindInputFeedback'),
+  blindEntered: document.getElementById('blindEntered'),
+  blindMissing: document.getElementById('blindMissing'),
   blindProgress: document.getElementById('blindProgress'),
   blindCorrect: document.getElementById('blindCorrect'),
   blindTimer: document.getElementById('blindTimer'),
@@ -269,6 +287,9 @@ const elements = {
   voiceStatus: document.getElementById('voiceStatus'),
   statusRow: document.getElementById('statusRow'),
   statusText: document.getElementById('statusText'),
+  squareColorControls: document.getElementById('squareColorControls'),
+  squareColorWhiteBtn: document.getElementById('squareColorWhiteBtn'),
+  squareColorBlackBtn: document.getElementById('squareColorBlackBtn'),
   lastMoveRow: document.getElementById('lastMoveRow'),
   lastMoveText: document.getElementById('lastMoveText'),
   toggleMovesBtn: document.getElementById('toggleMovesBtn'),
@@ -437,6 +458,7 @@ const state = {
     currentAnswer: '',
     expectedSquares: new Set(),
     givenSquares: new Set(),
+    attemptedEntries: [],
     positionIndex: null,
     gameIndex: null,
     gamePrefixMoves: []
@@ -797,7 +819,7 @@ function loadSettingsIntoState() {
     state.puzzleDifficulty = saved.puzzleDifficulty;
   }
   if (Number.isFinite(Number(saved.blindQuestionCount))) {
-    state.blindQuestionCount = Math.max(1, Math.min(200, Math.floor(Number(saved.blindQuestionCount))));
+    state.blindQuestionCount = Math.max(1, Math.min(30, Math.floor(Number(saved.blindQuestionCount))));
   }
   if (typeof saved.showBlindDests === 'boolean') {
     state.showBlindDests = saved.showBlindDests;
@@ -822,6 +844,10 @@ function applySettingsToUi() {
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
+  elements.blindQuestionCountValue.textContent = String(state.blindQuestionCount);
+  elements.puzzleBacktrackValue.textContent = String(
+    Math.max(1, Math.min(32, Math.floor(Number(elements.puzzleBacktrack.value) || 2)))
+  );
 
   const saved = readSettings();
   if (saved) {
@@ -840,8 +866,18 @@ function applyTheme() {
 function syncViewModeClasses() {
   const isDefaultGameView = state.sessionMode === 'game';
   const isPuzzleView = state.sessionMode === 'puzzle';
+  const isBlindView = state.sessionMode === 'blind-puzzles';
+  const isBlindPositionView = state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'position';
+  const isBlindStructuredView = state.sessionMode === 'blind-puzzles'
+    && (state.blindPuzzles.mode === 'position'
+      || state.blindPuzzles.mode === 'game-drill'
+      || state.blindPuzzles.mode === 'kr-matting'
+      || state.blindPuzzles.mode === 'kq-matting');
   document.body.classList.toggle('game-default-view', isDefaultGameView);
   document.body.classList.toggle('puzzle-mode', isPuzzleView);
+  document.body.classList.toggle('blind-mode', isBlindView);
+  document.body.classList.toggle('blind-position-mode', isBlindPositionView);
+  document.body.classList.toggle('blind-structured-mode', isBlindStructuredView);
 }
 
 const stockfishState = {
@@ -1291,7 +1327,7 @@ function sanToPolishSpeech(san) {
   const target = targetMatch ? targetMatch[1] : '';
   const capture = base.includes('x');
   const first = base[0];
-  const pieceName = /^[KQRBN]$/.test(first) ? names[first] : 'pion';
+  const pieceName = /^[KQRBN]$/.test(first) ? names[first] : '';
   const pawnCaptureFile = !/^[KQRBN]/.test(base) && capture
     ? ((base.match(/^([a-h])x/) ?? [])[1] ?? '')
     : '';
@@ -1299,6 +1335,8 @@ function sanToPolishSpeech(san) {
   let spoken;
   if (capture && pawnCaptureFile) {
     spoken = `${pawnCaptureFile} bije ${target}`;
+  } else if (!pieceName) {
+    spoken = capture ? `bije ${target}` : `${target}`;
   } else {
     spoken = capture ? `${pieceName} bije ${target}` : `${pieceName} ${target}`;
   }
@@ -1364,7 +1402,7 @@ function formatSanLineFromList(sans, startPly = 0) {
       }
     }
   }
-  return chunks.join(' | ');
+  return chunks.join(' ');
 }
 
 function updatePuzzlePanel() {
@@ -1372,11 +1410,13 @@ function updatePuzzlePanel() {
     elements.puzzlePanel.hidden = true;
     elements.puzzleMeta.textContent = '-';
     elements.puzzleContext.textContent = '-';
+    elements.showSolutionBtn.hidden = true;
     elements.showSolutionBtn.disabled = true;
     return;
   }
 
   elements.puzzlePanel.hidden = false;
+  elements.showSolutionBtn.hidden = false;
   const p = state.puzzle;
   const solvedSolutionCount = Math.max(0, p.solutionIndex - p.contextMoves.length);
   elements.puzzleMeta.innerHTML = '';
@@ -1395,7 +1435,7 @@ function updatePuzzlePanel() {
     ? formatSanLineFromList(shownSolutionSans, p.startPly)
     : '-';
   if (contextLine && contextLine !== '-' && solutionLine && solutionLine !== '-') {
-    elements.puzzleContext.textContent = `${contextLine} | ${solutionLine}`;
+    elements.puzzleContext.textContent = `${contextLine} ${solutionLine}`;
   } else if (contextLine && contextLine !== '-') {
     elements.puzzleContext.textContent = contextLine;
   } else {
@@ -1592,6 +1632,7 @@ function trySkipContextToSolutionByInput(text) {
 async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
   state.puzzleAutoPlaying = false;
+  elements.moveInput.value = '';
   elements.loadPuzzleBtn.disabled = true;
   elements.statusText.textContent = 'Loading puzzle from Lichess...';
 
@@ -1620,8 +1661,9 @@ async function loadLichessPuzzle() {
     }
     const startPly = resolved.startPly;
     const backtrackRaw = Number(elements.puzzleBacktrack.value);
-    const backtrack = Number.isFinite(backtrackRaw) ? Math.max(0, Math.min(20, Math.floor(backtrackRaw))) : 0;
+    const backtrack = Number.isFinite(backtrackRaw) ? Math.max(1, Math.min(32, Math.floor(backtrackRaw))) : 2;
     elements.puzzleBacktrack.value = String(backtrack);
+    elements.puzzleBacktrackValue.textContent = String(backtrack);
     const contextStartPly = Math.max(0, startPly - backtrack);
     const contextSans = sans.slice(contextStartPly, startPly);
     const contextVerbose = verbose.slice(contextStartPly, startPly);
@@ -1774,6 +1816,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set();
   state.blindPuzzles.givenSquares = new Set();
+  state.blindPuzzles.attemptedEntries = [];
   state.blindPuzzles.positionIndex = null;
   state.blindPuzzles.gameIndex = null;
   state.blindPuzzles.gamePrefixMoves = [];
@@ -1789,28 +1832,114 @@ function formatBlindTime(ms) {
   return `${mm}:${ss}`;
 }
 
+function recordBlindAttempt(square, correct) {
+  state.blindPuzzles.attemptedEntries.push({ square, correct: !!correct });
+  if (correct) {
+    state.blindPuzzles.givenSquares.add(square);
+  }
+}
+
+function renderBlindMovementFeedback(mode) {
+  const movementMode = mode === 'bishop-movements' || mode === 'knight-movements' || mode === 'check';
+  elements.blindInputFeedback.hidden = !movementMode;
+  if (!movementMode) {
+    return;
+  }
+
+  const entered = state.blindPuzzles.attemptedEntries;
+  elements.blindEntered.innerHTML = '';
+  if (!entered.length) {
+    elements.blindEntered.textContent = '-';
+  } else {
+    for (let i = 0; i < entered.length; i += 1) {
+      const token = document.createElement('span');
+      token.className = `blind-token ${entered[i].correct ? 'is-good' : 'is-bad'}`;
+      token.textContent = entered[i].square;
+      elements.blindEntered.appendChild(token);
+      if (i < entered.length - 1) {
+        elements.blindEntered.appendChild(document.createTextNode(' '));
+      }
+    }
+  }
+
+  const missing = [...state.blindPuzzles.expectedSquares].filter((sq) => !state.blindPuzzles.givenSquares.has(sq));
+  elements.blindMissing.innerHTML = '';
+  if (state.blindPuzzles.running) {
+    elements.blindMissing.textContent = '-';
+    return;
+  }
+  if (!missing.length) {
+    elements.blindMissing.textContent = '-';
+  } else {
+    for (let i = 0; i < missing.length; i += 1) {
+      const token = document.createElement('span');
+      token.className = 'blind-token is-missing';
+      token.textContent = missing[i];
+      elements.blindMissing.appendChild(token);
+      if (i < missing.length - 1) {
+        elements.blindMissing.appendChild(document.createTextNode(' '));
+      }
+    }
+  }
+}
+
 function updateBlindPanel() {
   const active = state.sessionMode === 'blind-puzzles';
   elements.blindPanel.hidden = !active;
   if (!active) {
+    elements.blindPanel.classList.remove('square-color-layout');
+    elements.blindPanel.classList.remove('movement-layout');
+    elements.blindPanel.classList.remove('check-layout');
+    elements.blindPanel.classList.remove('position-layout');
+    elements.blindPanel.classList.remove('matting-layout');
+    elements.blindPanel.classList.remove('game-drill-layout');
+    elements.blindMain.hidden = true;
+    elements.blindInputFeedback.hidden = true;
     return;
   }
   const bp = state.blindPuzzles;
+  elements.blindMain.hidden = !bp.mode;
+  if (!bp.mode) {
+    elements.blindPanel.classList.remove('square-color-layout');
+    elements.blindPanel.classList.remove('movement-layout');
+    elements.blindPanel.classList.remove('check-layout');
+    elements.blindPanel.classList.remove('position-layout');
+    elements.blindPanel.classList.remove('matting-layout');
+    elements.blindPanel.classList.remove('game-drill-layout');
+    elements.blindInputFeedback.hidden = true;
+    return;
+  }
+  elements.blindPanel.classList.toggle('square-color-layout', bp.mode === 'square-colors');
+  elements.blindPanel.classList.toggle('movement-layout', bp.mode === 'bishop-movements' || bp.mode === 'knight-movements');
+  elements.blindPanel.classList.toggle('check-layout', bp.mode === 'check');
+  elements.blindPanel.classList.toggle('position-layout', bp.mode === 'position');
+  elements.blindPanel.classList.toggle('matting-layout', bp.mode === 'kr-matting' || bp.mode === 'kq-matting');
+  elements.blindPanel.classList.toggle('game-drill-layout', bp.mode === 'game-drill');
   if (bp.mode === 'kr-matting' || bp.mode === 'kq-matting') {
     elements.blindPrompt.textContent = formatMattingPositionPrompt(state.game);
     elements.blindProgress.textContent = '-';
     elements.blindCorrect.textContent = '-';
     elements.blindTimer.textContent = '-';
+    const stats = elements.blindMain.querySelector('.blind-stats');
+    if (stats instanceof HTMLElement) {
+      stats.hidden = true;
+    }
+    elements.blindInputFeedback.hidden = true;
     return;
+  }
+  const stats = elements.blindMain.querySelector('.blind-stats');
+  if (stats instanceof HTMLElement) {
+    stats.hidden = false;
   }
   if (bp.mode === 'position') {
     const idx = bp.positionIndex;
     const ex = Number.isInteger(idx) ? state.positionExercises[idx] : null;
     const solvedCount = state.positionSolved.size;
-    elements.blindPrompt.textContent = ex ? `Białe: ${ex.whiteLabel} | Czarne: ${ex.blackLabel}` : '-';
+    elements.blindPrompt.textContent = ex ? `white: ${ex.whiteLabel}\nblack: ${ex.blackLabel}` : '-';
     elements.blindProgress.textContent = ex ? `${idx + 1}/${state.positionExercises.length}` : '-';
     elements.blindCorrect.textContent = `${solvedCount}/${state.positionExercises.length}`;
     elements.blindTimer.textContent = '-';
+    elements.blindInputFeedback.hidden = true;
     return;
   }
   if (bp.mode === 'game-drill') {
@@ -1821,6 +1950,7 @@ function updateBlindPanel() {
     elements.blindProgress.textContent = ex ? `${idx + 1}/${state.gameExercises.length}` : '-';
     elements.blindCorrect.textContent = `${solvedCount}/${state.gameExercises.length}`;
     elements.blindTimer.textContent = '-';
+    elements.blindInputFeedback.hidden = true;
     return;
   }
   elements.blindPrompt.textContent = bp.currentSquare || '-';
@@ -1830,6 +1960,7 @@ function updateBlindPanel() {
     : '';
   elements.blindCorrect.textContent = `${bp.correct}${extra}`;
   elements.blindTimer.textContent = formatBlindTime(bp.elapsedMs);
+  renderBlindMovementFeedback(bp.mode);
 }
 
 function squareColorAnswer(square) {
@@ -1997,7 +2128,7 @@ function formatMattingPositionPrompt(game) {
 
   const whiteText = white.map((p) => p.token).join(' ') || '-';
   const blackText = black.map((p) => p.token).join(' ') || '-';
-  return `Białe: ${whiteText} | Czarne: ${blackText}`;
+  return `White: ${whiteText}\nBlack: ${blackText}`;
 }
 
 function isBlindMattingMode() {
@@ -2123,6 +2254,26 @@ function speakBlindPrompt(text) {
   speechSynthesis.speak(utterance);
 }
 
+function speakBlindGameOverMessage(success) {
+  if (!elements.speakComputer.checked || typeof speechSynthesis === 'undefined') {
+    return;
+  }
+  if (state.speaking) {
+    speechSynthesis.cancel();
+  }
+  const utterance = new SpeechSynthesisUtterance(success ? 'brawo, koniec gry' : 'błąd, koniec gry');
+  utterance.lang = 'pl-PL';
+  utterance.onstart = () => {
+    state.speaking = true;
+    refreshVoiceListeningState();
+  };
+  utterance.onend = () => {
+    state.speaking = false;
+    refreshVoiceListeningState();
+  };
+  speechSynthesis.speak(utterance);
+}
+
 function startBlindPuzzleTimer() {
   stopBlindPuzzleTimer();
   state.blindPuzzles.startAt = Date.now();
@@ -2144,8 +2295,7 @@ function askNextSquareColorQuestion() {
   state.blindPuzzles.givenSquares = new Set();
   elements.statusText.textContent = 'Say: białe or czarne';
   updateBlindPanel();
-  const spoken = state.moveLanguage === 'pl' ? `pole ${sq}` : `square ${sq}`;
-  speakBlindPrompt(spoken);
+  speakBlindPrompt(sq);
 }
 
 function normalizeVoiceText(raw) {
@@ -2187,6 +2337,7 @@ function finishSquareColors(success) {
   } else {
     elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
   }
+  speakBlindGameOverMessage(success);
   setVoiceMode(false);
 }
 
@@ -2201,14 +2352,14 @@ function finishBlindPuzzleGeneric(success, wrongReason = '') {
     const tail = wrongReason ? ` ${wrongReason}` : '';
     elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.${tail}`;
   }
+  speakBlindGameOverMessage(success);
   setVoiceMode(false);
 }
 
-function handleSquareColorsVoice(transcript) {
+function applySquareColorAnswer(answer) {
   if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'square-colors' || !state.blindPuzzles.running) {
     return false;
   }
-  const answer = normalizeSquareColorVoice(transcript);
   if (!answer) {
     elements.statusText.textContent = 'Answer with: białe or czarne.';
     return true;
@@ -2233,6 +2384,14 @@ function handleSquareColorsVoice(transcript) {
   return true;
 }
 
+function handleSquareColorsVoice(transcript) {
+  if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'square-colors' || !state.blindPuzzles.running) {
+    return false;
+  }
+  const answer = normalizeSquareColorVoice(transcript);
+  return applySquareColorAnswer(answer);
+}
+
 function finishBlindQuestionOrAskNext(nextAsker) {
   state.blindPuzzles.asked += 1;
   state.blindPuzzles.correct += 1;
@@ -2249,6 +2408,7 @@ function askNextBishopQuestion() {
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(bishopEdgeSquares(sq));
   state.blindPuzzles.givenSquares = new Set();
+  state.blindPuzzles.attemptedEntries = [];
   elements.statusText.textContent = 'Say 4 edge squares reachable by bishop.';
   updateBlindPanel();
   speakBlindPrompt(sq);
@@ -2261,6 +2421,7 @@ function askNextKnightQuestion() {
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(targets);
   state.blindPuzzles.givenSquares = new Set();
+  state.blindPuzzles.attemptedEntries = [];
   elements.statusText.textContent = targets.length < 8
     ? 'Say all knight squares, then say stop.'
     : 'Say all 8 knight squares.';
@@ -2287,6 +2448,7 @@ function askNextCheckQuestion() {
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(candidates);
   state.blindPuzzles.givenSquares = new Set();
+  state.blindPuzzles.attemptedEntries = [];
   elements.statusText.textContent = 'Say all checking moves as squares, then stop.';
   updateBlindPanel();
   speakBlindPrompt(`król ${king}, ${pieceNamePl(role)} ${from}`);
@@ -2302,11 +2464,12 @@ function handleBishopVoice(transcript) {
     return true;
   }
   for (const sq of heardSquares) {
-    if (!state.blindPuzzles.expectedSquares.has(sq)) {
+    const correct = state.blindPuzzles.expectedSquares.has(sq);
+    recordBlindAttempt(sq, correct);
+    if (!correct) {
       finishBlindPuzzleGeneric(false);
       return true;
     }
-    state.blindPuzzles.givenSquares.add(sq);
   }
   updateBlindPanel();
   if (state.blindPuzzles.givenSquares.size === state.blindPuzzles.expectedSquares.size) {
@@ -2323,11 +2486,12 @@ function handleKnightVoice(transcript) {
   const stop = hasStopToken(transcript);
 
   for (const sq of heardSquares) {
-    if (!state.blindPuzzles.expectedSquares.has(sq)) {
+    const correct = state.blindPuzzles.expectedSquares.has(sq);
+    recordBlindAttempt(sq, correct);
+    if (!correct) {
       finishBlindPuzzleGeneric(false);
       return true;
     }
-    state.blindPuzzles.givenSquares.add(sq);
   }
   updateBlindPanel();
 
@@ -2363,11 +2527,12 @@ function handleCheckVoice(transcript) {
   const stop = hasStopToken(transcript);
 
   for (const sq of heardSquares) {
-    if (!state.blindPuzzles.expectedSquares.has(sq)) {
+    const correct = state.blindPuzzles.expectedSquares.has(sq);
+    recordBlindAttempt(sq, correct);
+    if (!correct) {
       finishBlindPuzzleGeneric(false);
       return true;
     }
-    state.blindPuzzles.givenSquares.add(sq);
   }
   updateBlindPanel();
 
@@ -2439,6 +2604,7 @@ function speakPositionTask(task) {
     speechSynthesis.cancel();
   }
   const spokenTask = String(task)
+    .replace(/\b\d+\.(?:\.\.)?/g, ' ')
     .replace(/\bK([a-h][1-8])\b/gi, (_m, sq) => `król ${sq.toLowerCase()}`)
     .replace(/\bH([a-h][1-8])\b/gi, (_m, sq) => `hetman ${sq.toLowerCase()}`)
     .replace(/\bW([a-h][1-8])\b/gi, (_m, sq) => `wieża ${sq.toLowerCase()}`)
@@ -2446,7 +2612,7 @@ function speakPositionTask(task) {
     .replace(/\bS([a-h][1-8])\b/gi, (_m, sq) => `skoczek ${sq.toLowerCase()}`)
     .replace(/\bP\s*:\s*([a-h][1-8](?:\s*,\s*[a-h][1-8])*)/gi, (_m, list) => {
       const parts = list.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
-      return parts.map((sq) => `pion ${sq}`).join(', ');
+      return parts.join(', ');
     });
   const utterance = new SpeechSynthesisUtterance(spokenTask);
   utterance.lang = 'pl-PL';
@@ -2484,7 +2650,7 @@ function startPositionExercise() {
   state.game = new Chess();
   state.game.load(ex.fen);
   updateAll();
-  elements.statusText.textContent = ex.task;
+  elements.statusText.textContent = state.game.turn() === 'w' ? 'white move' : 'black move';
   speakPositionTask(ex.task);
   setVoiceMode(false);
 }
@@ -2500,10 +2666,7 @@ function speakGameTask(exercise) {
     speechSynthesis.cancel();
   }
   const movesSpoken = (exercise.moveSans ?? [])
-    .map((san, idx) => {
-      const prefix = idx % 2 === 0 ? `${Math.floor(idx / 2) + 1}. ` : '';
-      return `${prefix}${sanToPolishSpeech(san)}`;
-    })
+    .map((san) => sanToPolishSpeech(san))
     .join('. ');
   const side = exercise.turn === 'w' ? 'biale zaczynaja' : 'czarne zaczynaja';
   const utterance = new SpeechSynthesisUtterance(`${movesSpoken}. ${side}.`);
@@ -2692,7 +2855,6 @@ function startKRookMatting() {
   state.reviewPly = null;
   state.game = game;
   updateAll();
-  elements.statusText.textContent = 'K+R vs K started. Mate black.';
   setVoiceMode(false);
 }
 
@@ -2712,7 +2874,6 @@ function startKQueenMatting() {
   state.reviewPly = null;
   state.game = game;
   updateAll();
-  elements.statusText.textContent = 'K+Q vs K started. Mate black.';
   setVoiceMode(false);
 }
 
@@ -3684,7 +3845,16 @@ function updateStatus() {
   }
   const boardGame = getBoardGame();
   const turn = boardGame.turn() === 'w' ? 'White' : 'Black';
-  if (state.sessionMode === 'blind-puzzles' && (state.blindPuzzles.mode === 'position' || state.blindPuzzles.mode === 'game-drill')) {
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'position') {
+    elements.statusText.textContent = boardGame.turn() === 'w' ? 'white move' : 'black move';
+    return;
+  }
+  if (state.sessionMode === 'blind-puzzles'
+    && (state.blindPuzzles.mode === 'kr-matting' || state.blindPuzzles.mode === 'kq-matting')) {
+    elements.statusText.textContent = boardGame.turn() === 'w' ? 'white move' : 'black move';
+    return;
+  }
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
     elements.statusText.textContent = `${turn} to move`;
     return;
   }
@@ -3744,7 +3914,12 @@ function updateMoveAssistVisibility() {
 function applyRuntimeLayoutOverrides() {
   const portrait = window.matchMedia('(orientation: portrait)').matches;
   if (portrait) {
-    elements.reviewNav.style.setProperty('margin-top', '0.8rem', 'important');
+    const blindStructured = state.sessionMode === 'blind-puzzles'
+      && (state.blindPuzzles.mode === 'position'
+        || state.blindPuzzles.mode === 'game-drill'
+        || state.blindPuzzles.mode === 'kr-matting'
+        || state.blindPuzzles.mode === 'kq-matting');
+    elements.reviewNav.style.setProperty('margin-top', blindStructured ? '2.9rem' : '0.8rem', 'important');
     elements.reviewPrevBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewNextBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewPrevBtn.style.setProperty('padding-top', '0.5rem', 'important');
@@ -3801,6 +3976,16 @@ function updateMainControlsVisibility() {
   elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
   elements.lastMoveRow.hidden = state.sessionMode !== 'game' || hideBelowSlider;
   elements.statusRow.hidden = hideBelowSlider;
+}
+
+function updateSquareColorControlsVisibility() {
+  const visible = state.sessionMode === 'blind-puzzles'
+    && state.blindPuzzles.mode === 'square-colors'
+    && !elements.statusRow.hidden;
+  elements.squareColorControls.hidden = !visible;
+  const enabled = visible && state.blindPuzzles.running;
+  elements.squareColorWhiteBtn.disabled = !enabled;
+  elements.squareColorBlackBtn.disabled = !enabled;
 }
 
 function revealBelowSliderControls() {
@@ -3896,7 +4081,6 @@ function ensureVoiceRecognition() {
       elements.statusText.textContent = 'Select a blind puzzle mode first.';
       return;
     }
-    elements.moveInput.value = transcript;
     const ok = applyPlayerMove(transcript);
     if (!ok) {
       elements.statusText.textContent = `Could not parse voice move: ${transcript}`;
@@ -4031,6 +4215,7 @@ function updateAll() {
   updatePuzzlePanel();
   updateBlindPanel();
   updateMainControlsVisibility();
+  updateSquareColorControlsVisibility();
   syncMovesVisibilityUi();
   updateReviewControls();
   applyRuntimeLayoutOverrides();
@@ -4041,6 +4226,7 @@ function updateAll() {
 function resetGame() {
   resetBlindPuzzleSession();
   clearBlindClickSelection();
+  elements.moveInput.value = '';
   if (state.prePuzzleDisplayMode !== null) {
     state.displayMode = state.prePuzzleDisplayMode;
     state.prePuzzleDisplayMode = null;
@@ -4171,11 +4357,12 @@ elements.puzzleDifficulty.addEventListener('change', () => {
   writeSettings();
 });
 
-elements.blindQuestionCount.addEventListener('change', () => {
+elements.blindQuestionCount.addEventListener('input', () => {
   const value = Number(elements.blindQuestionCount.value);
-  const bounded = Number.isFinite(value) ? Math.max(1, Math.min(200, Math.floor(value))) : 25;
+  const bounded = Number.isFinite(value) ? Math.max(1, Math.min(30, Math.floor(value))) : 25;
   state.blindQuestionCount = bounded;
   elements.blindQuestionCount.value = String(bounded);
+  elements.blindQuestionCountValue.textContent = String(bounded);
   writeSettings();
 });
 
@@ -4196,11 +4383,13 @@ elements.speakComputer.addEventListener('change', () => {
   writeSettings();
 });
 
-elements.puzzleBacktrack.addEventListener('change', () => {
+elements.puzzleBacktrack.addEventListener('input', () => {
   const value = Number(elements.puzzleBacktrack.value);
-  elements.puzzleBacktrack.value = Number.isFinite(value)
-    ? String(Math.max(0, Math.min(20, Math.floor(value))))
-    : '2';
+  const bounded = Number.isFinite(value)
+    ? Math.max(1, Math.min(32, Math.floor(value)))
+    : 2;
+  elements.puzzleBacktrack.value = String(bounded);
+  elements.puzzleBacktrackValue.textContent = String(bounded);
 });
 
 function syncMovesVisibilityUi() {
@@ -4259,6 +4448,12 @@ elements.blindKRookBtn.addEventListener('click', () => {
 });
 elements.blindKQueenBtn.addEventListener('click', () => {
   startKQueenMatting();
+});
+elements.squareColorWhiteBtn.addEventListener('click', () => {
+  applySquareColorAnswer('biale');
+});
+elements.squareColorBlackBtn.addEventListener('click', () => {
+  applySquareColorAnswer('czarne');
 });
 elements.showSolutionBtn.addEventListener('click', showPuzzleSolution);
 installLongPressAction(elements.reviewPrevBtn, reviewStepBack, reviewJumpFirst);
@@ -4330,6 +4525,11 @@ window.addEventListener('pointerdown', (event) => {
 });
 
 elements.voiceOnceBtn.addEventListener('click', () => {
+  const oneShotOn = state.voiceMode && state.voiceOneShot;
+  if (oneShotOn) {
+    setVoiceMode(false);
+    return;
+  }
   state.voiceOneShot = true;
   setVoiceMode(true);
 });
