@@ -663,8 +663,18 @@ body.puzzle-mode .moves-wrap {
   font-weight: 700;
 }
 
+.move-token.puzzle-solution-move {
+  color: #1f7a34;
+  font-weight: 600;
+}
+
 .puzzle-wrong-inline {
   color: #b42323;
+  font-weight: 700;
+}
+
+.puzzle-solved-face {
+  color: #1f7a34;
   font-weight: 700;
 }
 
@@ -1248,6 +1258,14 @@ body.theme-dark .muted {
 
 body.theme-dark .move-token.active-move {
   background: #2b4d35;
+}
+
+body.theme-dark .move-token.puzzle-solution-move {
+  color: #7dd592;
+}
+
+body.theme-dark .puzzle-solved-face {
+  color: #7dd592;
 }
 
 body.theme-dark .move-token.clickable-move:hover {

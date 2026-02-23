@@ -1629,37 +1629,59 @@ function sanToFigurine(san) {
     .replace(/=([KQRBN])/g, (_m, p1) => `=${map[p1] ?? p1}`);
 }
 
-function formatSanForDisplay(san) {
-  if (elements.figurineNotation.checked) {
-    return sanToFigurine(san);
-  }
-  if (state.moveLanguage === 'pl') {
-    return englishToPolishSan(san);
-  }
-  return san;
+function stripPromotionEqualsForDisplay(san) {
+  return san.replace(/=([KQRBNHWGS♔♕♖♗♘])/g, '$1');
 }
 
-function formatSanLineFromList(sans, startPly = 0) {
-  if (!sans.length) {
-    return '-';
+function formatSanForDisplay(san) {
+  if (elements.figurineNotation.checked) {
+    return stripPromotionEqualsForDisplay(sanToFigurine(san));
   }
-  const chunks = [];
+  if (state.moveLanguage === 'pl') {
+    return stripPromotionEqualsForDisplay(englishToPolishSan(san));
+  }
+  return stripPromotionEqualsForDisplay(san);
+}
+
+function appendSanMovesToNode(node, sans, startPly = 0, { activeAbsPly = null, solutionStartPly = null } = {}) {
+  if (!node || !Array.isArray(sans) || !sans.length) {
+    return;
+  }
+  const frag = document.createDocumentFragment();
   for (let i = 0; i < sans.length; i += 1) {
     const ply = startPly + i;
     const moveNo = Math.floor(ply / 2) + 1;
     const rendered = formatSanForDisplay(sans[i]);
+
     if (ply % 2 === 0) {
-      chunks.push(`${moveNo}. ${rendered}`);
+      const no = document.createElement('span');
+      no.className = 'move-no';
+      no.textContent = `${moveNo}.`;
+      frag.appendChild(no);
     } else {
-      const lastIdx = chunks.length - 1;
-      if (lastIdx >= 0) {
-        chunks[lastIdx] = `${chunks[lastIdx]} ${rendered}`;
-      } else {
-        chunks.push(`${moveNo}... ${rendered}`);
+      const prevPly = ply - 1;
+      const blackStartsSequence = i === 0 || prevPly < startPly || (prevPly % 2 === 1);
+      if (blackStartsSequence) {
+        const no = document.createElement('span');
+        no.className = 'move-no';
+        no.textContent = `${moveNo}...`;
+        frag.appendChild(no);
       }
     }
+
+    const mv = document.createElement('span');
+    mv.className = 'move-token';
+    mv.textContent = rendered;
+    if (solutionStartPly !== null && ply >= solutionStartPly) {
+      mv.classList.add('puzzle-solution-move');
+    }
+    if (activeAbsPly !== null && ply === activeAbsPly) {
+      mv.classList.add('active-move');
+    }
+    frag.appendChild(mv);
+    frag.appendChild(document.createTextNode(' '));
   }
-  return chunks.join(' ');
+  node.appendChild(frag);
 }
 
 function updatePuzzlePanel() {
@@ -1679,25 +1701,39 @@ function updatePuzzlePanel() {
   const p = state.puzzle;
   const solvedSolutionCount = Math.max(0, p.solutionIndex - p.contextMoves.length);
   elements.openPuzzleLinkBtn.href = `https://lichess.org/training/${p.id}`;
-  const contextLine = formatSanLineFromList(p.contextSans, p.contextStartPly);
   const shownSolutionSans = p.revealSolutionText
     ? p.solutionSans
     : p.solutionSans.slice(0, solvedSolutionCount);
-  const solutionLine = shownSolutionSans.length
-    ? formatSanLineFromList(shownSolutionSans, p.startPly)
-    : '-';
-  if (contextLine && contextLine !== '-' && solutionLine && solutionLine !== '-') {
-    elements.puzzleContext.textContent = `${contextLine} ${solutionLine}`;
-  } else if (contextLine && contextLine !== '-') {
-    elements.puzzleContext.textContent = contextLine;
-  } else {
-    elements.puzzleContext.textContent = solutionLine;
+  const activeAbsPly = state.puzzleViewIndex > 0 ? (state.puzzleViewIndex - 1) : null;
+  const hasContext = p.contextSans.length > 0;
+  const hasSolution = shownSolutionSans.length > 0;
+  elements.puzzleContext.textContent = '';
+  if (hasContext) {
+    appendSanMovesToNode(elements.puzzleContext, p.contextSans, p.contextStartPly, {
+      activeAbsPly,
+      solutionStartPly: p.startPly
+    });
+  }
+  if (hasSolution) {
+    appendSanMovesToNode(elements.puzzleContext, shownSolutionSans, p.startPly, {
+      activeAbsPly,
+      solutionStartPly: p.startPly
+    });
+  }
+  if (!hasContext && !hasSolution) {
+    elements.puzzleContext.textContent = '-';
   }
   if (state.puzzleLastAttempt?.wrong && state.puzzleLastAttempt.text) {
     const wrong = document.createElement('span');
     wrong.className = 'puzzle-wrong-inline';
     wrong.textContent = ` ${state.puzzleLastAttempt.text}`;
     elements.puzzleContext.appendChild(wrong);
+  }
+  if (p.solved) {
+    const solvedFace = document.createElement('span');
+    solvedFace.className = 'puzzle-solved-face';
+    solvedFace.textContent = ' :)';
+    elements.puzzleContext.appendChild(solvedFace);
   }
   elements.showSolutionBtn.disabled = p.solved || state.puzzleAutoPlaying;
 }
@@ -1976,7 +2012,6 @@ async function loadLichessPuzzle() {
 
     state.game = setGameFromVerboseMoves(verbose, contextStartPly) ?? new Chess(baseGame.fen());
     updateAll();
-    elements.statusText.textContent = 'Puzzle loaded.';
     speakPuzzleContextIfEnabled(contextSans);
   } catch (error) {
     state.sessionMode = 'game';
@@ -1987,6 +2022,10 @@ async function loadLichessPuzzle() {
     state.reviewPly = null;
     updatePuzzlePanel();
     const msg = String(error?.message ?? '');
+    if (msg === 'HTTP 429') {
+      elements.statusText.textContent = 'Lichess busy, wait 1 minute';
+      return;
+    }
     elements.statusText.textContent = msg
       ? `Failed to load puzzle from Lichess: ${msg}`
       : 'Failed to load puzzle from Lichess.';
@@ -3170,16 +3209,15 @@ function autoPlayPuzzleOpponentMovesIfEnabled() {
   }
 }
 
-async function showPuzzleSolution() {
+function showPuzzleSolution() {
   if (!state.puzzle || state.puzzle.solved || state.puzzleAutoPlaying) {
     return;
   }
 
   state.puzzle.revealSolutionText = true;
+  state.puzzleLastAttempt = null;
   state.puzzle.solutionIndex = state.puzzle.lineMoves.length;
-  state.puzzle.solved = true;
   updateAll();
-  elements.statusText.textContent = 'Solution revealed. Use Next or click moves to view on board.';
 }
 
 function puzzleStepBack() {
@@ -3440,9 +3478,18 @@ function uciFromMove(mv) {
 function looksLikePawnSanInput(moveRaw) {
   const raw = String(moveRaw ?? '').trim();
   const san = raw.replace(/[+#]/g, '');
-  return /^[a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san)
-    || /^[a-h]x[a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san)
-    || /^[a-h][a-h][1-8](?:=[qrbnhwgsQBRNHWGS])?$/.test(san);
+  return /^[a-h][1-8](?:=?[qrbnhwgsQBRNHWGS])?$/.test(san)
+    || /^[a-h]x[a-h][1-8](?:=?[qrbnhwgsQBRNHWGS])?$/.test(san)
+    || /^[a-h][a-h][1-8](?:=?[qrbnhwgsQBRNHWGS])?$/.test(san);
+}
+
+function normalizePromotionSansWithoutEquals(moveRaw) {
+  const raw = String(moveRaw ?? '').trim();
+  const m = raw.match(/^([a-h](?:x)?[a-h][1-8]|[a-h][a-h][1-8]|[a-h][1-8])([qrbnhwgsQBRNHWGS])([+#]?)$/);
+  if (!m) {
+    return raw;
+  }
+  return `${m[1]}=${m[2]}${m[3]}`;
 }
 
 function normalizeMoveInput(inputRaw) {
@@ -3466,6 +3513,7 @@ function normalizeMoveInput(inputRaw) {
   } else {
     move = move.replace(/^0-0-0$/i, 'O-O-O').replace(/^0-0$/i, 'O-O');
   }
+  move = normalizePromotionSansWithoutEquals(move);
 
   const uci = move.toLowerCase().replace(/\s+/g, '');
   if (/^[a-h][1-8][a-h][1-8][qrbnshwg]?$/.test(uci)) {
@@ -4117,6 +4165,9 @@ function updateMovesList() {
     mv.textContent = san;
     mv.dataset.ply = String(ply);
     mv.classList.add('clickable-move');
+    if (state.sessionMode === 'puzzle' && state.puzzle && ply >= state.puzzle.startPly) {
+      mv.classList.add('puzzle-solution-move');
+    }
     if (activeAbsPly !== null && ply === activeAbsPly) {
       mv.classList.add('active-move');
     }
