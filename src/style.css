@@ -374,48 +374,35 @@ button:hover {
   background: #fff;
 }
 
-.moves-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.88rem;
-}
-
-.moves-table th,
-.moves-table td {
+.moves-inline {
   padding: 0.45rem 0.55rem;
-  border-bottom: 1px solid #eee4cf;
-  text-align: left;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
-.moves-table th:first-child,
-.moves-table td:first-child {
-  width: 3rem;
+.move-no {
   color: #6a5b41;
+  margin-right: 0.2rem;
 }
 
-.moves-table thead th {
-  position: sticky;
-  top: 0;
-  background: #f8f5ea;
-  z-index: 1;
+.move-token {
+  display: inline-block;
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
 }
 
-.moves-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.moves-table td.active-move {
-  background: #e8f3de;
-  font-weight: 700;
-}
-
-.moves-table td.clickable-move {
+.move-token.clickable-move {
   cursor: pointer;
 }
 
-.moves-table td.clickable-move:hover {
+.move-token.clickable-move:hover {
   background: #f3efdf;
+}
+
+.move-token.active-move {
+  background: #e8f3de;
+  font-weight: 700;
 }
 
 .icon-eye-btn {
@@ -692,18 +679,23 @@ button:hover {
 
   #toggleMovesBtn {
     float: right;
-    margin-top: -3.45rem;
+    margin-top: -2.9rem;
     width: 4.2rem;
-    min-height: 3.2rem;
+    min-height: 2.2rem;
     height: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     white-space: normal;
     line-height: 1.1;
     text-align: center;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
   }
 
   .review-nav {
     clear: both;
-    margin-top: 2rem !important;
+    margin-top: 1.25rem !important;
   }
 
   #movesPanel .review-nav button {
@@ -791,26 +783,16 @@ body.theme-dark button:hover {
   background: #27323d;
 }
 
-body.theme-dark .moves-table th,
-body.theme-dark .moves-table td {
-  border-bottom-color: #2f3f4c;
-}
-
-body.theme-dark .moves-table thead th {
-  background: #1a222a;
-}
-
-body.theme-dark .moves-table th:first-child,
-body.theme-dark .moves-table td:first-child,
+body.theme-dark .move-no,
 body.theme-dark .muted {
   color: #a8b3bd;
 }
 
-body.theme-dark .moves-table td.active-move {
+body.theme-dark .move-token.active-move {
   background: #2b4d35;
 }
 
-body.theme-dark .moves-table td.clickable-move:hover {
+body.theme-dark .move-token.clickable-move:hover {
   background: #27323d;
 }
 

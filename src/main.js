@@ -207,16 +207,7 @@ app.innerHTML = `
           <button id="reviewNextBtn" type="button">Next</button>
         </div>
         <div id="movesWrap" class="moves-wrap">
-          <table id="movesTable" class="moves-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>White</th>
-                <th>Black</th>
-              </tr>
-            </thead>
-            <tbody id="movesBody"></tbody>
-          </table>
+          <div id="movesBody" class="moves-inline"></div>
         </div>
       </div>
     </section>
@@ -3445,64 +3436,46 @@ function updateMovesList() {
   }
 
   elements.movesBody.innerHTML = '';
+  if (!hist.length) {
+    elements.movesBody.textContent = '-';
+    return;
+  }
   const activeAbsPly = viewedPly > 0 ? (startPly + viewedPly - 1) : null;
 
-  const rows = [];
+  const frag = document.createDocumentFragment();
   for (let i = 0; i < hist.length; i += 1) {
     const ply = startPly + i;
     const moveNo = Math.floor(ply / 2) + 1;
     const san = formatSanForDisplay(hist[i]);
-    if (ply % 2 === 0) {
-      rows.push({
-        moveNo,
-        white: san,
-        black: '',
-        whitePly: ply,
-        blackPly: null
-      });
-    } else if (rows.length > 0 && rows[rows.length - 1].moveNo === moveNo && rows[rows.length - 1].black === '') {
-      rows[rows.length - 1].black = san;
-      rows[rows.length - 1].blackPly = ply;
-    } else {
-      rows.push({
-        moveNo,
-        white: '',
-        black: san,
-        whitePly: null,
-        blackPly: ply
-      });
-    }
-  }
 
-  for (const row of rows) {
-    const tr = document.createElement('tr');
-    const tdNo = document.createElement('td');
-    const tdWhite = document.createElement('td');
-    const tdBlack = document.createElement('td');
-    tdNo.textContent = String(row.moveNo);
-    tdWhite.textContent = row.white;
-    tdBlack.textContent = row.black;
-    const whiteClickable = row.white && row.whitePly !== null;
-    const blackClickable = row.black && row.blackPly !== null;
-    if (whiteClickable) {
-      tdWhite.dataset.ply = String(row.whitePly);
-      tdWhite.classList.add('clickable-move');
-    }
-    if (blackClickable) {
-      tdBlack.dataset.ply = String(row.blackPly);
-      tdBlack.classList.add('clickable-move');
-    }
-    if (activeAbsPly !== null) {
-      if (row.whitePly === activeAbsPly) {
-        tdWhite.classList.add('active-move');
-      }
-      if (row.blackPly === activeAbsPly) {
-        tdBlack.classList.add('active-move');
+    if (ply % 2 === 0) {
+      const no = document.createElement('span');
+      no.className = 'move-no';
+      no.textContent = `${moveNo}.`;
+      frag.appendChild(no);
+    } else {
+      const prevPly = ply - 1;
+      const blackStartsSequence = i === 0 || prevPly < startPly || (prevPly % 2 === 1);
+      if (blackStartsSequence) {
+        const no = document.createElement('span');
+        no.className = 'move-no';
+        no.textContent = `${moveNo}...`;
+        frag.appendChild(no);
       }
     }
-    tr.append(tdNo, tdWhite, tdBlack);
-    elements.movesBody.appendChild(tr);
+
+    const mv = document.createElement('span');
+    mv.className = 'move-token';
+    mv.textContent = san;
+    mv.dataset.ply = String(ply);
+    mv.classList.add('clickable-move');
+    if (activeAbsPly !== null && ply === activeAbsPly) {
+      mv.classList.add('active-move');
+    }
+    frag.appendChild(mv);
+    frag.appendChild(document.createTextNode(' '));
   }
+  elements.movesBody.appendChild(frag);
 }
 
 function updateLastMove() {
@@ -3521,7 +3494,9 @@ function updateLastMove() {
     elements.lastMoveText.textContent = '-';
     return;
   }
-  elements.lastMoveText.textContent = formatSanForDisplay(last);
+  const isBlackMove = hist.length % 2 === 0;
+  const rendered = formatSanForDisplay(last);
+  elements.lastMoveText.textContent = isBlackMove ? `... ${rendered}` : rendered;
 }
 
 function updateStatus() {
