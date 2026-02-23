@@ -74,10 +74,6 @@ app.innerHTML = `
               Hear Computer Moves
             </label>
             <label class="checkbox-row">
-              <input id="voiceSticky" type="checkbox" checked />
-              Sticky Voice Button
-            </label>
-            <label class="checkbox-row">
               <input id="speakCheck" type="checkbox" />
               Speak Checks
             </label>
@@ -91,7 +87,7 @@ app.innerHTML = `
             </label>
             <label class="checkbox-row">
               <input id="puzzleAutoOpponent" type="checkbox" checked />
-              Auto-play opponent moves
+              Auto-play opponent moves in lichess puzzles
             </label>
             <label class="checkbox-row">
               <input id="darkMode" type="checkbox" />
@@ -185,8 +181,8 @@ app.innerHTML = `
           </div>
         </form>
         <div class="voice-controls">
-          <button id="voiceOnceBtn" type="button">Listen Once</button>
           <button id="voiceStickyBtn" type="button">Voice: Off</button>
+          <button id="voiceOnceBtn" type="button">Listen Once</button>
         </div>
         <div id="voiceStatus" class="muted"></div>
       </div>
@@ -203,8 +199,16 @@ app.innerHTML = `
       <div id="movesPanel" class="moves-panel">
         <button id="toggleMovesBtn" type="button">Show Moves</button>
         <div id="reviewNav" class="review-nav">
-          <button id="reviewPrevBtn" type="button">Prev</button>
-          <button id="reviewNextBtn" type="button">Next</button>
+          <button id="reviewPrevBtn" type="button" aria-label="Previous move" title="Previous move">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+              <path d="M15 6 L9 12 L15 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
+          <button id="reviewNextBtn" type="button" aria-label="Next move" title="Next move">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+              <path d="M9 6 L15 12 L9 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
         </div>
         <div id="movesWrap" class="moves-wrap">
           <div id="movesBody" class="moves-inline"></div>
@@ -227,7 +231,6 @@ const elements = {
   optionEngineStrength: document.getElementById('optionEngineStrength'),
   optionStrengthValue: document.getElementById('optionStrengthValue'),
   speakComputer: document.getElementById('speakComputer'),
-  voiceSticky: document.getElementById('voiceSticky'),
   speakCheck: document.getElementById('speakCheck'),
   figurineNotation: document.getElementById('figurineNotation'),
   showBlindDests: document.getElementById('showBlindDests'),
@@ -813,7 +816,6 @@ function applySettingsToUi() {
   elements.optionEngineStrength.value = String(state.stockfishElo);
   elements.optionStrengthValue.textContent = String(state.stockfishElo);
   elements.speakCheck.checked = state.speakCheck;
-  elements.voiceSticky.checked = state.voiceSticky;
   elements.showBlindDests.checked = state.showBlindDests;
   elements.darkMode.checked = state.darkMode;
   elements.showOnScreenKeyboard.checked = state.showOnScreenKeyboard;
@@ -837,7 +839,9 @@ function applyTheme() {
 
 function syncViewModeClasses() {
   const isDefaultGameView = state.sessionMode === 'game';
+  const isPuzzleView = state.sessionMode === 'puzzle';
   document.body.classList.toggle('game-default-view', isDefaultGameView);
+  document.body.classList.toggle('puzzle-mode', isPuzzleView);
 }
 
 const stockfishState = {
@@ -1793,7 +1797,7 @@ function updateBlindPanel() {
   }
   const bp = state.blindPuzzles;
   if (bp.mode === 'kr-matting' || bp.mode === 'kq-matting') {
-    elements.blindPrompt.textContent = bp.mode === 'kr-matting' ? 'K+R vs K' : 'K+Q vs K';
+    elements.blindPrompt.textContent = formatMattingPositionPrompt(state.game);
     elements.blindProgress.textContent = '-';
     elements.blindCorrect.textContent = '-';
     elements.blindTimer.textContent = '-';
@@ -1958,6 +1962,44 @@ function pieceNamePl(role) {
   return ({ R: 'wieża', N: 'skoczek', B: 'goniec', Q: 'hetman' }[role] ?? 'figura');
 }
 
+function figurineForBoardPiece(color, role) {
+  const figurines = {
+    white: { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
+    black: { king: '♚', queen: '♛', rook: '♜', bishop: '♝', knight: '♞', pawn: '♟' }
+  };
+  return figurines[color]?.[role] ?? '';
+}
+
+function formatMattingPositionPrompt(game) {
+  const pieces = fenToPieces(game.fen());
+  const white = [];
+  const black = [];
+  const order = { king: 0, queen: 1, rook: 2, bishop: 3, knight: 4, pawn: 5 };
+
+  for (const [square, piece] of pieces.entries()) {
+    const token = `${figurineForBoardPiece(piece.color, piece.role)}${square}`;
+    if (piece.color === 'white') {
+      white.push({ token, role: piece.role, square });
+    } else {
+      black.push({ token, role: piece.role, square });
+    }
+  }
+
+  const sorter = (a, b) => {
+    const roleDiff = (order[a.role] ?? 99) - (order[b.role] ?? 99);
+    if (roleDiff !== 0) {
+      return roleDiff;
+    }
+    return a.square.localeCompare(b.square);
+  };
+  white.sort(sorter);
+  black.sort(sorter);
+
+  const whiteText = white.map((p) => p.token).join(' ') || '-';
+  const blackText = black.map((p) => p.token).join(' ') || '-';
+  return `Białe: ${whiteText} | Czarne: ${blackText}`;
+}
+
 function isBlindMattingMode() {
   return state.sessionMode === 'blind-puzzles'
     && (state.blindPuzzles.mode === 'kr-matting' || state.blindPuzzles.mode === 'kq-matting');
@@ -1969,6 +2011,22 @@ function isBlindPlayableGameMode() {
       || state.blindPuzzles.mode === 'kq-matting'
       || state.blindPuzzles.mode === 'position'
       || state.blindPuzzles.mode === 'game-drill');
+}
+
+function shouldShowBlindMoveControls() {
+  return state.sessionMode === 'blind-puzzles'
+    && (state.blindPuzzles.mode === 'kr-matting'
+      || state.blindPuzzles.mode === 'kq-matting'
+      || state.blindPuzzles.mode === 'position'
+      || state.blindPuzzles.mode === 'game-drill'
+      || state.blindPuzzles.mode === 'bishop-movements'
+      || state.blindPuzzles.mode === 'knight-movements'
+      || state.blindPuzzles.mode === 'check');
+}
+
+function shouldShowBlindVoiceControls() {
+  return shouldShowBlindMoveControls()
+    || (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'square-colors');
 }
 
 function kingsAdjacent(a, b) {
@@ -2086,7 +2144,8 @@ function askNextSquareColorQuestion() {
   state.blindPuzzles.givenSquares = new Set();
   elements.statusText.textContent = 'Say: białe or czarne';
   updateBlindPanel();
-  speakBlindPrompt(sq);
+  const spoken = state.moveLanguage === 'pl' ? `pole ${sq}` : `square ${sq}`;
+  speakBlindPrompt(spoken);
 }
 
 function normalizeVoiceText(raw) {
@@ -2154,6 +2213,7 @@ function handleSquareColorsVoice(transcript) {
     elements.statusText.textContent = 'Answer with: białe or czarne.';
     return true;
   }
+  const oneShotActive = state.voiceOneShot;
 
   state.blindPuzzles.asked += 1;
   if (answer !== state.blindPuzzles.currentAnswer) {
@@ -2167,6 +2227,9 @@ function handleSquareColorsVoice(transcript) {
     return true;
   }
   askNextSquareColorQuestion();
+  if (oneShotActive && state.voiceMode) {
+    setVoiceMode(false);
+  }
   return true;
 }
 
@@ -2182,7 +2245,7 @@ function finishBlindQuestionOrAskNext(nextAsker) {
 
 function askNextBishopQuestion() {
   const sq = randomInnerSquare();
-  state.blindPuzzles.currentSquare = sq;
+  state.blindPuzzles.currentSquare = `${pieceSymbol('B')}${sq}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(bishopEdgeSquares(sq));
   state.blindPuzzles.givenSquares = new Set();
@@ -2194,7 +2257,7 @@ function askNextBishopQuestion() {
 function askNextKnightQuestion() {
   const sq = randomSquare();
   const targets = knightSquares(sq);
-  state.blindPuzzles.currentSquare = sq;
+  state.blindPuzzles.currentSquare = `${pieceSymbol('N')}${sq}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(targets);
   state.blindPuzzles.givenSquares = new Set();
@@ -2772,6 +2835,118 @@ function reviewStepForward() {
   const next = viewed + 1;
   state.reviewPly = next >= total ? null : next;
   updateAll();
+}
+
+function reviewJumpFirst() {
+  if (state.sessionMode === 'puzzle') {
+    if (!state.puzzle || state.puzzleAutoPlaying) {
+      return;
+    }
+    const progressAbsPly = puzzleProgressAbsPly();
+    state.puzzleViewIndex = progressAbsPly > 0 ? 1 : 0;
+    if (!syncPuzzleGameToView()) {
+      elements.statusText.textContent = 'Cannot navigate puzzle move list.';
+      return;
+    }
+    updateAll();
+    return;
+  }
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
+    const total = gameDrillTotalPlies();
+    if (total === 0) {
+      return;
+    }
+    state.reviewPly = 1;
+    updateAll();
+    return;
+  }
+
+  const total = state.game.history({ verbose: true }).length;
+  if (total === 0) {
+    return;
+  }
+  state.reviewPly = 1;
+  updateAll();
+}
+
+function reviewJumpLast() {
+  if (state.sessionMode === 'puzzle') {
+    if (!state.puzzle || state.puzzleAutoPlaying) {
+      return;
+    }
+    state.puzzleViewIndex = puzzleProgressAbsPly();
+    if (!syncPuzzleGameToView()) {
+      elements.statusText.textContent = 'Cannot navigate puzzle move list.';
+      return;
+    }
+    updateAll();
+    return;
+  }
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
+    const total = gameDrillTotalPlies();
+    if (total === 0) {
+      return;
+    }
+    state.reviewPly = null;
+    updateAll();
+    return;
+  }
+
+  const total = state.game.history({ verbose: true }).length;
+  if (total === 0) {
+    return;
+  }
+  state.reviewPly = null;
+  updateAll();
+}
+
+function installLongPressAction(button, onClick, onLongPress) {
+  const longPressMs = 450;
+  let timer = null;
+  let longPressFired = false;
+  let pointerActive = false;
+
+  const clearTimer = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  button.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || button.disabled) {
+      return;
+    }
+    pointerActive = true;
+    longPressFired = false;
+    clearTimer();
+    timer = setTimeout(() => {
+      if (!pointerActive || button.disabled) {
+        return;
+      }
+      longPressFired = true;
+      onLongPress();
+    }, longPressMs);
+  });
+
+  const endPress = () => {
+    pointerActive = false;
+    clearTimer();
+  };
+
+  button.addEventListener('pointerup', endPress);
+  button.addEventListener('pointercancel', endPress);
+  button.addEventListener('pointerleave', endPress);
+
+  button.addEventListener('click', (event) => {
+    if (longPressFired) {
+      event.preventDefault();
+      event.stopPropagation();
+      longPressFired = false;
+      return;
+    }
+    onClick();
+  });
 }
 
 function jumpToMovePly(absPly) {
@@ -3513,7 +3688,6 @@ function updateStatus() {
     elements.statusText.textContent = `${turn} to move`;
     return;
   }
-  const check = boardGame.inCheck() ? ' (Check)' : '';
 
   if (state.sessionMode === 'puzzle' && state.puzzle) {
     if (state.puzzle.solved) {
@@ -3524,7 +3698,7 @@ function updateStatus() {
       elements.statusText.textContent = 'Showing full puzzle solution...';
       return;
     }
-    elements.statusText.textContent = `${turn} to move${check} (Puzzle)`;
+    elements.statusText.textContent = `${turn} to move`;
     return;
   }
 
@@ -3538,7 +3712,7 @@ function updateStatus() {
     elements.statusText.textContent = 'Draw.';
     return;
   }
-  elements.statusText.textContent = `${turn} to move${check}`;
+  elements.statusText.textContent = `${turn} to move`;
 }
 
 function updateVoiceUi() {
@@ -3548,7 +3722,7 @@ function updateVoiceUi() {
   elements.voiceStickyBtn.classList.toggle('is-on', stickyOn);
   elements.voiceOnceBtn.classList.toggle('is-on', oneShotOn);
   elements.voiceOnceBtn.textContent = oneShotOn ? 'Listen Once: On' : 'Listen Once';
-  const hideMoveForm = state.voiceMode || (state.sessionMode === 'blind-puzzles' && !isBlindPlayableGameMode());
+  const hideMoveForm = state.sessionMode === 'blind-puzzles' && !shouldShowBlindMoveControls();
   elements.moveInputs.classList.toggle('voice-active', hideMoveForm);
   if (!state.voiceMode) {
     elements.voiceStatus.textContent = '';
@@ -3570,7 +3744,7 @@ function updateMoveAssistVisibility() {
 function applyRuntimeLayoutOverrides() {
   const portrait = window.matchMedia('(orientation: portrait)').matches;
   if (portrait) {
-    elements.reviewNav.style.setProperty('margin-top', '2rem', 'important');
+    elements.reviewNav.style.setProperty('margin-top', '0.8rem', 'important');
     elements.reviewPrevBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewNextBtn.style.setProperty('min-height', '1.5rem', 'important');
     elements.reviewPrevBtn.style.setProperty('padding-top', '0.5rem', 'important');
@@ -3608,6 +3782,7 @@ function updateMainControlsVisibility() {
   const hideMain = inPuzzle || inBlind;
   const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
+  const inBlindVoiceControls = inBlind && shouldShowBlindVoiceControls();
   const hideBelowSlider = state.hideBelowSliderOnStart && state.sessionMode === 'game';
   const allowMoveInput = !state.game.isGameOver()
     && !state.engineThinking
@@ -3621,10 +3796,10 @@ function updateMainControlsVisibility() {
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
   const hideMoveInputs = beforeGameStart
     || hideBelowSlider
-    || (state.sessionMode === 'puzzle' && !allowMoveInput);
+    || (inBlind && !inBlindVoiceControls);
   elements.moveInputs.hidden = hideMoveInputs;
   elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
-  elements.lastMoveRow.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
+  elements.lastMoveRow.hidden = state.sessionMode !== 'game' || hideBelowSlider;
   elements.statusRow.hidden = hideBelowSlider;
 }
 
@@ -3824,6 +3999,7 @@ function canListenToVoiceNow() {
 function refreshVoiceListeningState() {
   if (!state.voiceMode) {
     stopVoiceListening();
+    updateVoiceUi();
     return;
   }
   if (canListenToVoiceNow()) {
@@ -3855,6 +4031,7 @@ function updateAll() {
   updatePuzzlePanel();
   updateBlindPanel();
   updateMainControlsVisibility();
+  syncMovesVisibilityUi();
   updateReviewControls();
   applyRuntimeLayoutOverrides();
   updateStatus();
@@ -3984,11 +4161,6 @@ elements.speakCheck.addEventListener('change', () => {
   writeSettings();
 });
 
-elements.voiceSticky.addEventListener('change', () => {
-  state.voiceSticky = elements.voiceSticky.checked;
-  writeSettings();
-});
-
 elements.puzzleAutoOpponent.addEventListener('change', () => {
   state.puzzleAutoOpponent = elements.puzzleAutoOpponent.checked;
   writeSettings();
@@ -4032,7 +4204,9 @@ elements.puzzleBacktrack.addEventListener('change', () => {
 });
 
 function syncMovesVisibilityUi() {
-  elements.movesWrap.style.display = state.movesVisible ? 'block' : 'none';
+  const forceVisible = state.sessionMode === 'puzzle';
+  elements.movesWrap.style.display = (state.movesVisible || forceVisible) ? 'block' : 'none';
+  elements.toggleMovesBtn.hidden = forceVisible;
   elements.toggleMovesBtn.textContent = state.movesVisible ? 'Hide Moves' : 'Show Moves';
 }
 
@@ -4087,8 +4261,8 @@ elements.blindKQueenBtn.addEventListener('click', () => {
   startKQueenMatting();
 });
 elements.showSolutionBtn.addEventListener('click', showPuzzleSolution);
-elements.reviewPrevBtn.addEventListener('click', reviewStepBack);
-elements.reviewNextBtn.addEventListener('click', reviewStepForward);
+installLongPressAction(elements.reviewPrevBtn, reviewStepBack, reviewJumpFirst);
+installLongPressAction(elements.reviewNextBtn, reviewStepForward, reviewJumpLast);
 elements.movesBody.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {

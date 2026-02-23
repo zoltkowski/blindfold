@@ -245,6 +245,24 @@ button:hover {
   gap: 0.6rem;
 }
 
+#puzzlePanel {
+  margin-top: 0.35rem;
+  position: relative;
+  padding-right: 6.2rem;
+}
+
+#puzzlePanel #showSolutionBtn {
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-top: 0.12rem;
+  width: 5.1rem;
+  white-space: normal;
+  line-height: 1.1;
+  text-align: center;
+}
+
 .puzzle-panel[hidden] {
   display: none !important;
 }
@@ -342,7 +360,7 @@ button:hover {
 }
 
 .last-move-row {
-  margin-top: 0.35rem;
+  margin-top: 0.2rem;
   font-size: 1.05rem;
 }
 
@@ -365,6 +383,12 @@ button:hover {
   flex: 1;
 }
 
+.review-nav button svg {
+  display: block;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
 .moves-wrap {
   margin: 0.6rem 0 0;
   max-height: 280px;
@@ -372,6 +396,11 @@ button:hover {
   border: 1px solid #d0c5ac;
   border-radius: 8px;
   background: #fff;
+}
+
+body.puzzle-mode .moves-wrap {
+  max-height: none;
+  overflow: visible;
 }
 
 .moves-inline {
@@ -647,12 +676,24 @@ button:hover {
 }
 
 @media (orientation: portrait) {
+  body.puzzle-mode .layout {
+    gap: 0.12rem;
+  }
+
+  body.puzzle-mode .right-col {
+    padding-top: 0.15rem;
+  }
+
   body.game-default-view .layout {
     gap: 0.05rem;
   }
 
   body.game-default-view .right-col {
     padding-top: 0.2rem;
+  }
+
+  body.game-default-view .last-move-row {
+    margin-top: 0.08rem;
   }
 
   .right-col h1 {
@@ -705,8 +746,8 @@ button:hover {
   }
 
   #puzzlePanel {
-    margin-top: 0;
-    padding: 0;
+    margin-top: -0.45rem;
+    padding: 0 5.6rem 0 0;
     border: none;
     background: transparent;
   }
@@ -721,6 +762,17 @@ button:hover {
 }
 
 @media (orientation: landscape) {
+  html,
+  body,
+  #app {
+    height: 100dvh;
+  }
+
+  .layout {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
   #statusRow,
   #lastMoveRow {
     padding-right: 4.8rem;
