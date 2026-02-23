@@ -1694,7 +1694,7 @@ function appendSanMovesToNode(node, sans, startPly = 0, { activeAbsPly = null, s
 
 function updatePuzzlePanel() {
   if (!state.puzzle) {
-    elements.puzzlePanel.hidden = true;
+    elements.puzzlePanel.hidden = state.sessionMode !== 'puzzle';
     elements.puzzleContext.textContent = '-';
     elements.openPuzzleLinkBtn.hidden = true;
     elements.openPuzzleLinkBtn.removeAttribute('href');
@@ -2022,21 +2022,26 @@ async function loadLichessPuzzle() {
     updateAll();
     speakPuzzleContextIfEnabled(contextSans);
   } catch (error) {
-    state.sessionMode = 'game';
-    state.puzzle = null;
     state.puzzleRevealPrevView = null;
     state.puzzleLastAttempt = null;
-    state.puzzleViewIndex = 0;
-    state.reviewPly = null;
-    updatePuzzlePanel();
+    if (state.prePuzzleDisplayMode === null) {
+      state.prePuzzleDisplayMode = state.displayMode;
+    }
+    state.sessionMode = 'puzzle';
+    if (!state.puzzle) {
+      state.displayMode = 'normal-pieces';
+      elements.displayMode.value = state.displayMode;
+      state.puzzleViewIndex = 0;
+      state.reviewPly = null;
+      state.game = new Chess();
+    }
+    updateAll();
     const msg = String(error?.message ?? '');
     if (msg === 'HTTP 429') {
       elements.statusText.textContent = 'Lichess busy, wait 1 minute';
       return;
     }
-    elements.statusText.textContent = msg
-      ? `Failed to load puzzle from Lichess: ${msg}`
-      : 'Failed to load puzzle from Lichess.';
+    elements.statusText.textContent = 'Unable to get puzzle from Lichess.';
   } finally {
     elements.loadPuzzleBtn.disabled = false;
   }
