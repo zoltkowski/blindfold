@@ -77,6 +77,10 @@ app.innerHTML = `
               Speak Checks
             </label>
             <label class="checkbox-row">
+              <input id="voiceOnOtherPuzzles" type="checkbox" />
+              Voice on for puzzles with timer
+            </label>
+            <label class="checkbox-row">
               <input id="figurineNotation" type="checkbox" checked />
               Use Figurine Notation
             </label>
@@ -117,6 +121,10 @@ app.innerHTML = `
             <label>
               <span class="engine-meta"><span>TTS Speed</span>: <span id="ttsRateValue">1.0x</span></span>
               <input id="ttsRate" type="range" min="0.1" max="1.5" step="0.1" value="1.0" />
+            </label>
+            <label>
+              <span class="engine-meta"><span>TTS Move Pause</span>: <span id="ttsMovePauseValue">250 ms</span></span>
+              <input id="ttsMovePause" type="range" min="0" max="5000" step="250" value="250" />
             </label>
             <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
             <label>
@@ -277,6 +285,7 @@ const elements = {
   optionStrengthValue: document.getElementById('optionStrengthValue'),
   speakComputer: document.getElementById('speakComputer'),
   speakCheck: document.getElementById('speakCheck'),
+  voiceOnOtherPuzzles: document.getElementById('voiceOnOtherPuzzles'),
   figurineNotation: document.getElementById('figurineNotation'),
   showBlindDests: document.getElementById('showBlindDests'),
   showCoordinates: document.getElementById('showCoordinates'),
@@ -287,6 +296,8 @@ const elements = {
   ttsVoice: document.getElementById('ttsVoice'),
   ttsRate: document.getElementById('ttsRate'),
   ttsRateValue: document.getElementById('ttsRateValue'),
+  ttsMovePause: document.getElementById('ttsMovePause'),
+  ttsMovePauseValue: document.getElementById('ttsMovePauseValue'),
   ttsSampleBtn: document.getElementById('ttsSampleBtn'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
@@ -348,10 +359,11 @@ const assistPieceButtons = Array.from(document.querySelectorAll('[data-assist-pi
 const SETTINGS_KEY = 'blindfold_chess_settings_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
+const SQUARE_COLOR_STATS_KEY = 'blind_square_color_stats_v1';
 const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
-const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY];
+const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY];
 
 const persistentStorage = {
   initPromise: null,
@@ -490,6 +502,7 @@ const state = {
   moveLanguage: 'pl',
   stockfishElo: 1700,
   speakCheck: false,
+  voiceOnOtherPuzzles: false,
   sessionMode: 'game',
   puzzle: null,
   puzzleAutoPlaying: false,
@@ -511,6 +524,7 @@ const state = {
     currentAnswer: '',
     expectedSquares: new Set(),
     givenSquares: new Set(),
+    roundUsedSquares: new Set(),
     attemptedEntries: [],
     positionIndex: null,
     gameIndex: null,
@@ -520,6 +534,7 @@ const state = {
   positionSolved: new Set(),
   gameExercises: [],
   gameSolved: new Set(),
+  squareColorStats: {},
   prePuzzleDisplayMode: null,
   puzzleViewIndex: 0,
   puzzleRevealPrevView: null,
@@ -534,6 +549,8 @@ const state = {
   showOnScreenKeyboard: false,
   ttsVoiceUri: '',
   ttsRate: 1,
+  ttsMovePauseMs: 250,
+  ttsSequenceToken: 0,
   blindClickFrom: null,
   voiceSticky: true,
   voiceMode: false,
@@ -710,6 +727,42 @@ function readSolvedGames() {
 function writeSolvedGames() {
   const payload = [...state.gameSolved.values()].sort((a, b) => a - b);
   void writePersistentValue(GAME_SOLVED_KEY, payload);
+}
+
+function isBoardSquare(square) {
+  return /^[a-h][1-8]$/.test(String(square ?? '').toLowerCase());
+}
+
+function sanitizeSquareColorStats(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {};
+  }
+  const out = {};
+  for (const [squareRaw, value] of Object.entries(raw)) {
+    const square = String(squareRaw ?? '').toLowerCase();
+    if (!isBoardSquare(square)) {
+      continue;
+    }
+    const askedRaw = Number(value?.asked);
+    const correctRaw = Number(value?.correct);
+    const asked = Number.isFinite(askedRaw) ? Math.max(0, Math.floor(askedRaw)) : 0;
+    const correct = Number.isFinite(correctRaw) ? Math.max(0, Math.floor(correctRaw)) : 0;
+    if (asked <= 0) {
+      continue;
+    }
+    out[square] = { asked, correct: Math.min(asked, correct) };
+  }
+  return out;
+}
+
+function readSquareColorStats() {
+  const parsed = readPersistentValue(SQUARE_COLOR_STATS_KEY);
+  return sanitizeSquareColorStats(parsed);
+}
+
+function writeSquareColorStats() {
+  const payload = sanitizeSquareColorStats(state.squareColorStats);
+  void writePersistentValue(SQUARE_COLOR_STATS_KEY, payload);
 }
 
 function normalizePolishText(text) {
@@ -943,6 +996,7 @@ function writeSettings() {
     speakComputer: elements.speakComputer.checked,
     voiceSticky: state.voiceSticky,
     speakCheck: state.speakCheck,
+    voiceOnOtherPuzzles: state.voiceOnOtherPuzzles,
     figurineNotation: elements.figurineNotation.checked,
     showBlindDests: state.showBlindDests,
     showCoordinates: state.showCoordinates,
@@ -952,6 +1006,7 @@ function writeSettings() {
     showOnScreenKeyboard: state.showOnScreenKeyboard,
     ttsVoiceUri: state.ttsVoiceUri,
     ttsRate: state.ttsRate,
+    ttsMovePauseMs: state.ttsMovePauseMs,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleDifficulty: state.puzzleDifficulty,
     blindQuestionCount: state.blindQuestionCount,
@@ -975,6 +1030,9 @@ function loadSettingsIntoState() {
   }
   if (typeof saved.speakCheck === 'boolean') {
     state.speakCheck = saved.speakCheck;
+  }
+  if (typeof saved.voiceOnOtherPuzzles === 'boolean') {
+    state.voiceOnOtherPuzzles = saved.voiceOnOtherPuzzles;
   }
   if (typeof saved.voiceSticky === 'boolean') {
     state.voiceSticky = saved.voiceSticky;
@@ -1015,6 +1073,9 @@ function loadSettingsIntoState() {
   if (Number.isFinite(Number(saved.ttsRate))) {
     state.ttsRate = Math.max(0.1, Math.min(1.5, Number(saved.ttsRate)));
   }
+  if (Number.isFinite(Number(saved.ttsMovePauseMs))) {
+    state.ttsMovePauseMs = Math.max(0, Math.min(5000, Math.round(Number(saved.ttsMovePauseMs) / 250) * 250));
+  }
 }
 
 function applySettingsToUi() {
@@ -1023,6 +1084,7 @@ function applySettingsToUi() {
   elements.optionEngineStrength.value = String(state.stockfishElo);
   elements.optionStrengthValue.textContent = String(state.stockfishElo);
   elements.speakCheck.checked = state.speakCheck;
+  elements.voiceOnOtherPuzzles.checked = state.voiceOnOtherPuzzles;
   elements.showBlindDests.checked = state.showBlindDests;
   elements.showCoordinates.checked = state.showCoordinates;
   elements.showLastMove.checked = state.showLastMove;
@@ -1031,6 +1093,8 @@ function applySettingsToUi() {
   elements.showOnScreenKeyboard.checked = state.showOnScreenKeyboard;
   elements.ttsRate.value = String(state.ttsRate);
   elements.ttsRateValue.textContent = `${state.ttsRate.toFixed(1)}x`;
+  elements.ttsMovePause.value = String(state.ttsMovePauseMs);
+  elements.ttsMovePauseValue.textContent = `${state.ttsMovePauseMs} ms`;
   elements.ttsVoice.value = state.ttsVoiceUri;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
@@ -1102,6 +1166,69 @@ function normalizeTtsText(text) {
     .replace(/\./g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function cancelTtsPlayback() {
+  state.ttsSequenceToken += 1;
+  if (typeof speechSynthesis !== 'undefined') {
+    speechSynthesis.cancel();
+  }
+  state.speaking = false;
+  refreshVoiceListeningState();
+}
+
+function speakTtsSequence(texts, lang) {
+  if (typeof speechSynthesis === 'undefined') {
+    return;
+  }
+  const queue = (Array.isArray(texts) ? texts : [])
+    .map((item) => normalizeTtsText(item))
+    .filter(Boolean);
+  if (!queue.length) {
+    return;
+  }
+
+  const token = ++state.ttsSequenceToken;
+  const pauseMs = Math.max(0, Math.min(5000, Math.floor(Number(state.ttsMovePauseMs) || 0)));
+  state.speaking = true;
+  refreshVoiceListeningState();
+
+  const finish = () => {
+    if (token !== state.ttsSequenceToken) {
+      return;
+    }
+    state.speaking = false;
+    refreshVoiceListeningState();
+  };
+
+  const speakNext = () => {
+    if (token !== state.ttsSequenceToken) {
+      return;
+    }
+    const text = queue.shift();
+    if (!text) {
+      finish();
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    applyTtsOptions(utterance, lang);
+    utterance.onend = () => {
+      if (token !== state.ttsSequenceToken) {
+        return;
+      }
+      if (!queue.length) {
+        finish();
+        return;
+      }
+      window.setTimeout(speakNext, pauseMs);
+    };
+    utterance.onerror = () => {
+      finish();
+    };
+    speechSynthesis.speak(utterance);
+  };
+
+  speakNext();
 }
 
 function applyTtsOptions(utterance, lang) {
@@ -2116,6 +2243,9 @@ function stopBlindPuzzleTimer() {
 }
 
 function resetBlindPuzzleSession() {
+  if (state.speaking) {
+    cancelTtsPlayback();
+  }
   const wasBlindMode = state.sessionMode === 'blind-puzzles';
   stopBlindPuzzleTimer();
   state.blindPuzzles.mode = null;
@@ -2129,6 +2259,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set();
   state.blindPuzzles.givenSquares = new Set();
+  state.blindPuzzles.roundUsedSquares = new Set();
   state.blindPuzzles.attemptedEntries = [];
   state.blindPuzzles.positionIndex = null;
   state.blindPuzzles.gameIndex = null;
@@ -2282,10 +2413,89 @@ function squareColorAnswer(square) {
   return ((file + rank) % 2 === 0) ? 'czarne' : 'biale';
 }
 
+const ALL_BOARD_SQUARES = Array.from({ length: 8 }, (_f, fi) =>
+  Array.from({ length: 8 }, (_r, ri) => `${String.fromCharCode(97 + fi)}${ri + 1}`)
+).flat();
+
 function randomSquare() {
-  const file = String.fromCharCode(97 + Math.floor(Math.random() * 8));
-  const rank = 1 + Math.floor(Math.random() * 8);
-  return `${file}${rank}`;
+  return ALL_BOARD_SQUARES[Math.floor(Math.random() * ALL_BOARD_SQUARES.length)];
+}
+
+function getSquareColorStatsEntry(square) {
+  const key = String(square ?? '').toLowerCase();
+  if (!isBoardSquare(key)) {
+    return { asked: 0, correct: 0 };
+  }
+  const entry = state.squareColorStats[key];
+  if (!entry || !Number.isFinite(entry.asked) || !Number.isFinite(entry.correct)) {
+    return { asked: 0, correct: 0 };
+  }
+  const asked = Math.max(0, Math.floor(Number(entry.asked)));
+  const correct = Math.max(0, Math.floor(Number(entry.correct)));
+  return { asked, correct: Math.min(asked, correct) };
+}
+
+function compareSquareColorStats(a, b) {
+  if (a.asked === 0 && b.asked === 0) {
+    return 0;
+  }
+  if (a.asked === 0) {
+    return -1;
+  }
+  if (b.asked === 0) {
+    return 1;
+  }
+  const left = a.correct * b.asked;
+  const right = b.correct * a.asked;
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  if (a.asked > b.asked) {
+    return -1;
+  }
+  if (a.asked < b.asked) {
+    return 1;
+  }
+  return 0;
+}
+
+function pickNextSquareColorSquare() {
+  const used = state.blindPuzzles.roundUsedSquares;
+  const candidates = ALL_BOARD_SQUARES.filter((sq) => !used.has(sq));
+  if (!candidates.length) {
+    return randomSquare();
+  }
+  let bestStats = getSquareColorStatsEntry(candidates[0]);
+  let bestSquares = [candidates[0]];
+  for (let i = 1; i < candidates.length; i += 1) {
+    const square = candidates[i];
+    const stats = getSquareColorStatsEntry(square);
+    const cmp = compareSquareColorStats(stats, bestStats);
+    if (cmp < 0) {
+      bestStats = stats;
+      bestSquares = [square];
+    } else if (cmp === 0) {
+      bestSquares.push(square);
+    }
+  }
+  return bestSquares[Math.floor(Math.random() * bestSquares.length)];
+}
+
+function recordSquareColorStat(square, correct) {
+  const key = String(square ?? '').toLowerCase();
+  if (!isBoardSquare(key)) {
+    return;
+  }
+  const entry = getSquareColorStatsEntry(key);
+  entry.asked += 1;
+  if (correct) {
+    entry.correct += 1;
+  }
+  state.squareColorStats[key] = entry;
+  writeSquareColorStats();
 }
 
 function randomInnerSquare() {
@@ -2552,7 +2762,7 @@ function speakBlindPrompt(text) {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const utterance = new SpeechSynthesisUtterance(text);
   applyTtsOptions(utterance, 'pl-PL');
@@ -2572,7 +2782,7 @@ function speakBlindGameOverMessage(success) {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const utterance = new SpeechSynthesisUtterance(success ? 'brawo, koniec gry' : 'błąd, koniec gry');
   applyTtsOptions(utterance, 'pl-PL');
@@ -2601,7 +2811,8 @@ function startBlindPuzzleTimer() {
 }
 
 function askNextSquareColorQuestion() {
-  const sq = randomSquare();
+  const sq = pickNextSquareColorSquare();
+  state.blindPuzzles.roundUsedSquares.add(sq);
   state.blindPuzzles.currentSquare = sq;
   state.blindPuzzles.currentAnswer = squareColorAnswer(sq);
   state.blindPuzzles.expectedSquares = new Set();
@@ -2678,13 +2889,16 @@ function applySquareColorAnswer(answer) {
     return true;
   }
   const oneShotActive = state.voiceOneShot;
+  const currentSquare = state.blindPuzzles.currentSquare;
 
   state.blindPuzzles.asked += 1;
   if (answer !== state.blindPuzzles.currentAnswer) {
+    recordSquareColorStat(currentSquare, false);
     finishSquareColors(false);
     return true;
   }
 
+  recordSquareColorStat(currentSquare, true);
   state.blindPuzzles.correct += 1;
   if (state.blindPuzzles.asked >= state.blindPuzzles.total) {
     finishSquareColors(true);
@@ -2914,7 +3128,7 @@ function speakPositionTask(task) {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const spokenTask = String(task)
     .replace(/\b\d+\.(?:\.\.)?/g, ' ')
@@ -2976,23 +3190,13 @@ function speakGameTask(exercise) {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const movesSpoken = (exercise.moveSans ?? [])
     .map((san) => sanToPolishSpeech(san))
-    .join(' ');
+    .filter(Boolean);
   const side = exercise.turn === 'w' ? 'biale zaczynaja' : 'czarne zaczynaja';
-  const utterance = new SpeechSynthesisUtterance(`${movesSpoken} ${side}`);
-  applyTtsOptions(utterance, 'pl-PL');
-  utterance.onstart = () => {
-    state.speaking = true;
-    refreshVoiceListeningState();
-  };
-  utterance.onend = () => {
-    state.speaking = false;
-    refreshVoiceListeningState();
-  };
-  speechSynthesis.speak(utterance);
+  speakTtsSequence([...movesSpoken, side], 'pl-PL');
 }
 
 function startGameExercise() {
@@ -3097,11 +3301,11 @@ function startSquareColors() {
   state.reviewPly = null;
   state.blindPuzzles.mode = 'square-colors';
   state.blindPuzzles.running = true;
-  state.blindPuzzles.total = state.blindQuestionCount;
+  state.blindPuzzles.total = Math.min(64, state.blindQuestionCount);
   updateAll();
   startBlindPuzzleTimer();
   askNextSquareColorQuestion();
-  setVoiceMode(false);
+  setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
 function startBishopMovements() {
@@ -3117,7 +3321,7 @@ function startBishopMovements() {
   updateAll();
   startBlindPuzzleTimer();
   askNextBishopQuestion();
-  setVoiceMode(false);
+  setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
 function startKnightMovements() {
@@ -3133,7 +3337,7 @@ function startKnightMovements() {
   updateAll();
   startBlindPuzzleTimer();
   askNextKnightQuestion();
-  setVoiceMode(false);
+  setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
 function startCheckPuzzle() {
@@ -3149,7 +3353,7 @@ function startCheckPuzzle() {
   updateAll();
   startBlindPuzzleTimer();
   askNextCheckQuestion();
-  setVoiceMode(false);
+  setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
 function startKRookMatting() {
@@ -4014,7 +4218,7 @@ function speakMoveIfEnabled(moveSan) {
   }
 
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
 
   const utterance = new SpeechSynthesisUtterance(
@@ -4038,7 +4242,7 @@ function speakPuzzleSolvedIfEnabled() {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const utterance = new SpeechSynthesisUtterance('brawo');
   applyTtsOptions(utterance, 'pl-PL');
@@ -4061,7 +4265,7 @@ function speakPuzzleContextIfEnabled(contextSans) {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const spokenMoves = contextSans
     .map((san) => state.moveLanguage === 'pl' ? sanToPolishSpeech(san) : sanToEnglishSpeech(san))
@@ -4069,17 +4273,7 @@ function speakPuzzleContextIfEnabled(contextSans) {
   if (!spokenMoves.length) {
     return;
   }
-  const utterance = new SpeechSynthesisUtterance(spokenMoves.join(' '));
-  applyTtsOptions(utterance, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
-  utterance.onstart = () => {
-    state.speaking = true;
-    refreshVoiceListeningState();
-  };
-  utterance.onend = () => {
-    state.speaking = false;
-    refreshVoiceListeningState();
-  };
-  speechSynthesis.speak(utterance);
+  speakTtsSequence(spokenMoves, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
 }
 
 async function playEngineMoveIfNeeded() {
@@ -4417,7 +4611,7 @@ function playTtsSample() {
     return;
   }
   if (state.speaking) {
-    speechSynthesis.cancel();
+    cancelTtsPlayback();
   }
   const sampleSans = [
     'e4', 'd4', 'c4', 'Nf3', 'Nc3', 'Bb5', 'Bc4', 'Qh5', 'Qxa3', 'Ng5',
@@ -4439,19 +4633,8 @@ function playTtsSample() {
   if (!spokenMoves.length) {
     return;
   }
-  const text = spokenMoves.join(' ');
   const lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
-  const utterance = new SpeechSynthesisUtterance(text);
-  applyTtsOptions(utterance, lang);
-  utterance.onstart = () => {
-    state.speaking = true;
-    refreshVoiceListeningState();
-  };
-  utterance.onend = () => {
-    state.speaking = false;
-    refreshVoiceListeningState();
-  };
-  speechSynthesis.speak(utterance);
+  speakTtsSequence(spokenMoves, lang);
 }
 
 function pieceTokenForInput(role) {
@@ -4483,6 +4666,9 @@ function openConfigModal() {
 }
 
 function closeConfigModal() {
+  if (state.speaking) {
+    cancelTtsPlayback();
+  }
   elements.configModal.hidden = true;
 }
 
@@ -4815,12 +5001,28 @@ elements.ttsRate.addEventListener('input', () => {
   writeSettings();
 });
 
+elements.ttsMovePause.addEventListener('input', () => {
+  const value = Number(elements.ttsMovePause.value);
+  const bounded = Number.isFinite(value)
+    ? Math.max(0, Math.min(5000, Math.round(value / 250) * 250))
+    : 250;
+  state.ttsMovePauseMs = bounded;
+  elements.ttsMovePause.value = String(bounded);
+  elements.ttsMovePauseValue.textContent = `${bounded} ms`;
+  writeSettings();
+});
+
 elements.ttsSampleBtn.addEventListener('click', () => {
   playTtsSample();
 });
 
 elements.speakCheck.addEventListener('change', () => {
   state.speakCheck = elements.speakCheck.checked;
+  writeSettings();
+});
+
+elements.voiceOnOtherPuzzles.addEventListener('change', () => {
+  state.voiceOnOtherPuzzles = elements.voiceOnOtherPuzzles.checked;
   writeSettings();
 });
 
@@ -4853,9 +5055,7 @@ elements.optionEngineStrength.addEventListener('input', () => {
 
 elements.speakComputer.addEventListener('change', () => {
   if (!elements.speakComputer.checked && typeof speechSynthesis !== 'undefined') {
-    speechSynthesis.cancel();
-    state.speaking = false;
-    refreshVoiceListeningState();
+    cancelTtsPlayback();
   }
   writeSettings();
 });
@@ -5065,6 +5265,7 @@ async function bootstrapApp() {
   state.positionSolved = readSolvedPositions();
   state.gameExercises = buildGameExercises();
   state.gameSolved = readSolvedGames();
+  state.squareColorStats = readSquareColorStats();
   loadSettingsIntoState();
   populateTtsVoices();
   syncEngineControlUi();
