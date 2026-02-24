@@ -500,7 +500,7 @@ body.new-game-pending #statusText {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
+  width: 2.4rem;
   min-height: 2.2rem;
   height: auto;
   flex-shrink: 0;

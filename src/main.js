@@ -2005,6 +2005,12 @@ function puzzleProgressAbsPly() {
   return state.puzzle.contextStartPly + state.puzzle.solutionIndex;
 }
 
+function normalizeSanLooseMatch(san) {
+  return String(san ?? '')
+    .replace(/[^a-z0-9]/gi, '')
+    .toLowerCase();
+}
+
 function inputMatchesTargetMove(text, targetMove) {
   if (!targetMove) {
     return false;
@@ -2017,10 +2023,10 @@ function inputMatchesTargetMove(text, targetMove) {
     return false;
   }
 
-  const normalizeLoose = (san) => san.replace(/[x+#]/g, '');
   const engSan = targetMove.san;
   const polSan = englishToPolishSan(targetMove.san);
-  return [engSan, polSan].some((san) => normalizeLoose(san) === normalizeLoose(parsed.value));
+  const parsedLoose = normalizeSanLooseMatch(parsed.value);
+  return [engSan, polSan].some((san) => normalizeSanLooseMatch(san) === parsedLoose);
 }
 
 function trySkipContextToSolution(playedUci) {
@@ -3768,23 +3774,35 @@ function normalizeMoveInput(inputRaw) {
 function findMatchingMove(text) {
   const parsed = normalizeMoveInput(text);
   const legal = state.game.moves({ verbose: true });
-  const normalizeLoose = (san) => san.replace(/[x+#]/g, '');
+  if (parsed.type === 'uci') {
+    const uciMatches = legal.filter((mv) => uciFromMove(mv) === parsed.value);
+    return uciMatches.length === 1 ? uciMatches[0] : null;
+  }
 
-  for (const mv of legal) {
-    const engSan = mv.san;
-    const polSan = englishToPolishSan(mv.san);
-    const uci = uciFromMove(mv);
-
-    if (parsed.type === 'uci' && parsed.value === uci) {
-      return mv;
+  if (parsed.type === 'san') {
+    const exactMatches = legal.filter((mv) => {
+      const engSan = mv.san;
+      const polSan = englishToPolishSan(mv.san);
+      return [engSan, polSan].includes(parsed.value);
+    });
+    if (exactMatches.length === 1) {
+      return exactMatches[0];
+    }
+    if (exactMatches.length > 1) {
+      return null;
     }
 
-    if (parsed.type === 'san' && [engSan, polSan].includes(parsed.value)) {
-      return mv;
+    const parsedLoose = normalizeSanLooseMatch(parsed.value);
+    const looseMatches = legal.filter((mv) => {
+      const engSan = mv.san;
+      const polSan = englishToPolishSan(mv.san);
+      return [engSan, polSan].some((san) => normalizeSanLooseMatch(san) === parsedLoose);
+    });
+    if (looseMatches.length === 1) {
+      return looseMatches[0];
     }
-
-    if (parsed.type === 'san' && [engSan, polSan].some((san) => normalizeLoose(san) === normalizeLoose(parsed.value))) {
-      return mv;
+    if (looseMatches.length > 1) {
+      return null;
     }
   }
 
@@ -3847,9 +3865,8 @@ function findLooseExpectedPuzzleMove(text) {
     return null;
   }
 
-  const normalizeLoose = (san) => san.replace(/[+#x]/g, '');
-  const inputLoose = normalizeLoose(parsed.value);
-  const expectedLoose = normalizeLoose(expectedMove.san);
+  const inputLoose = normalizeSanLooseMatch(parsed.value);
+  const expectedLoose = normalizeSanLooseMatch(expectedMove.san);
   return inputLoose === expectedLoose ? expectedMove : null;
 }
 
