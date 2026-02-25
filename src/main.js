@@ -105,6 +105,10 @@ app.innerHTML = `
               Auto-play opponent moves in lichess puzzles
             </label>
             <label class="checkbox-row">
+              <input id="puzzleFixedOrientation" type="checkbox" />
+              Fixed board orientation for lichess puzzles
+            </label>
+            <label class="checkbox-row">
               <input id="darkMode" type="checkbox" />
               Dark Mode
             </label>
@@ -305,6 +309,7 @@ const elements = {
   blindQuestionCount: document.getElementById('blindQuestionCount'),
   blindQuestionCountValue: document.getElementById('blindQuestionCountValue'),
   puzzleAutoOpponent: document.getElementById('puzzleAutoOpponent'),
+  puzzleFixedOrientation: document.getElementById('puzzleFixedOrientation'),
   puzzleDifficulty: document.getElementById('puzzleDifficulty'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
   blindPuzzlesBtn: document.getElementById('blindPuzzlesBtn'),
@@ -360,10 +365,11 @@ const SETTINGS_KEY = 'blindfold_chess_settings_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
 const SQUARE_COLOR_STATS_KEY = 'blind_square_color_stats_v1';
+const SQUARE_COLOR_RECORDS_KEY = 'blind_square_color_records_v1';
 const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
-const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY];
+const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY];
 
 const persistentStorage = {
   initPromise: null,
@@ -507,6 +513,7 @@ const state = {
   puzzle: null,
   puzzleAutoPlaying: false,
   puzzleAutoOpponent: true,
+  puzzleFixedOrientation: false,
   puzzleDifficulty: 'easiest',
   blindQuestionCount: 25,
   puzzleBacktrack: 2,
@@ -522,6 +529,8 @@ const state = {
     timerId: null,
     currentSquare: '',
     currentAnswer: '',
+    questionStartedAt: 0,
+    responseTimesMs: [],
     expectedSquares: new Set(),
     givenSquares: new Set(),
     roundUsedSquares: new Set(),
@@ -535,6 +544,10 @@ const state = {
   gameExercises: [],
   gameSolved: new Set(),
   squareColorStats: {},
+  squareColorRecords: {
+    bestTotalMsByCount: {},
+    bestAvgMsGte20: null
+  },
   prePuzzleDisplayMode: null,
   puzzleViewIndex: 0,
   puzzleRevealPrevView: null,
@@ -763,6 +776,45 @@ function readSquareColorStats() {
 function writeSquareColorStats() {
   const payload = sanitizeSquareColorStats(state.squareColorStats);
   void writePersistentValue(SQUARE_COLOR_STATS_KEY, payload);
+}
+
+function sanitizeSquareColorRecords(raw) {
+  const out = {
+    bestTotalMsByCount: {},
+    bestAvgMsGte20: null
+  };
+  if (!raw || typeof raw !== 'object') {
+    return out;
+  }
+  const byCount = raw.bestTotalMsByCount;
+  if (byCount && typeof byCount === 'object') {
+    for (const [countRaw, valueRaw] of Object.entries(byCount)) {
+      const count = Number(countRaw);
+      const value = Number(valueRaw);
+      if (!Number.isInteger(count) || count < 1 || count > 64) {
+        continue;
+      }
+      if (!Number.isFinite(value) || value <= 0) {
+        continue;
+      }
+      out.bestTotalMsByCount[String(count)] = Math.max(1, Math.floor(value));
+    }
+  }
+  const bestAvg = Number(raw.bestAvgMsGte20);
+  if (Number.isFinite(bestAvg) && bestAvg > 0) {
+    out.bestAvgMsGte20 = Math.max(1, Math.floor(bestAvg));
+  }
+  return out;
+}
+
+function readSquareColorRecords() {
+  const parsed = readPersistentValue(SQUARE_COLOR_RECORDS_KEY);
+  return sanitizeSquareColorRecords(parsed);
+}
+
+function writeSquareColorRecords() {
+  const payload = sanitizeSquareColorRecords(state.squareColorRecords);
+  void writePersistentValue(SQUARE_COLOR_RECORDS_KEY, payload);
 }
 
 function normalizePolishText(text) {
@@ -1008,6 +1060,7 @@ function writeSettings() {
     ttsRate: state.ttsRate,
     ttsMovePauseMs: state.ttsMovePauseMs,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
+    puzzleFixedOrientation: state.puzzleFixedOrientation,
     puzzleDifficulty: state.puzzleDifficulty,
     blindQuestionCount: state.blindQuestionCount,
     puzzleBacktrack: state.puzzleBacktrack
@@ -1039,6 +1092,9 @@ function loadSettingsIntoState() {
   }
   if (typeof saved.puzzleAutoOpponent === 'boolean') {
     state.puzzleAutoOpponent = saved.puzzleAutoOpponent;
+  }
+  if (typeof saved.puzzleFixedOrientation === 'boolean') {
+    state.puzzleFixedOrientation = saved.puzzleFixedOrientation;
   }
   if (['easiest', 'easier', 'normal', 'harder', 'hardest'].includes(saved.puzzleDifficulty)) {
     state.puzzleDifficulty = saved.puzzleDifficulty;
@@ -1097,6 +1153,7 @@ function applySettingsToUi() {
   elements.ttsMovePauseValue.textContent = `${state.ttsMovePauseMs} ms`;
   elements.ttsVoice.value = state.ttsVoiceUri;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
+  elements.puzzleFixedOrientation.checked = state.puzzleFixedOrientation;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
   elements.blindQuestionCount.value = String(state.blindQuestionCount);
   elements.blindQuestionCountValue.textContent = String(state.blindQuestionCount);
@@ -1144,7 +1201,12 @@ const stockfishState = {
 
 const voiceState = {
   recognition: null,
-  startLock: false
+  startLock: false,
+  restartTimerId: null,
+  startWatchdogId: null,
+  startAttemptId: 0,
+  consecutiveFailures: 0,
+  forceRecreateOnNextStart: false
 };
 
 function getAvailableTtsVoices() {
@@ -1386,6 +1448,9 @@ function transformPiecesForDisplay(realPieces) {
 function updateBoard() {
   elements.board.dataset.mode = state.displayMode;
   elements.board.dataset.reveal = String(state.revealPosition);
+  const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
+    && state.blindPuzzles.mode === 'square-colors'
+    && state.revealPosition;
   const boardHidden = (state.sessionMode === 'blind-puzzles' && !state.revealPosition)
     || (state.displayMode === 'no-board' && !state.revealPosition);
   const suppressVisualMarks = shouldSuppressVisualMarks();
@@ -1397,9 +1462,12 @@ function updateBoard() {
   const reviewLocked = isReviewLocked();
   const realPieces = fenToPieces(boardGame.fen());
   const transformed = transformPiecesForDisplay(realPieces);
-  const pieces = transformed instanceof Map
+  let pieces = transformed instanceof Map
     ? transformed
     : new Map(Object.entries(transformed ?? {}));
+  if (squareColorHeatmapActive) {
+    pieces = new Map();
+  }
 
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
   const boardOrientation = state.boardOrientation;
@@ -1409,7 +1477,7 @@ function updateBoard() {
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
   const boardInputEnabled = state.sessionMode !== 'game' || state.gameStarted;
-  const shouldShowCoordinates = state.showCoordinates;
+  const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
   const needsCoordsRebuild = ground.state.coordinates !== shouldShowCoordinates
     || ground.state.coordinatesOnSquares !== shouldShowCoordinates;
 
@@ -1446,6 +1514,7 @@ function updateBoard() {
   if (needsCoordsRebuild) {
     ground.redrawAll();
   }
+  applySquareColorHeatmapOverlay(squareColorHeatmapActive);
   syncBlindClickDots();
 }
 
@@ -1463,11 +1532,61 @@ function syncRevealButtonUi() {
     elements.revealBtn.title = state.revealPosition ? 'Hide puzzle start position' : 'Show puzzle start position';
     return;
   }
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'square-colors') {
+    elements.revealBtn.title = state.revealPosition ? 'Hide square heat map' : 'Show square heat map';
+    return;
+  }
   if (state.displayMode === 'no-board') {
     elements.revealBtn.title = state.revealPosition ? 'Hide board' : 'Show board';
     return;
   }
   elements.revealBtn.title = state.revealPosition ? 'Hide revealed position' : 'Reveal position';
+}
+
+function squareColorHeatmapColor(square) {
+  const stats = getSquareColorStatsEntry(square);
+  if (stats.asked <= 0) {
+    return 'rgba(126, 133, 141, 0.2)';
+  }
+  const ratio = stats.correct / Math.max(1, stats.asked);
+  if (ratio >= 0.85) {
+    return 'rgba(31, 122, 52, 0.36)';
+  }
+  if (ratio >= 0.65) {
+    return 'rgba(148, 167, 33, 0.34)';
+  }
+  if (ratio >= 0.45) {
+    return 'rgba(204, 125, 24, 0.34)';
+  }
+  return 'rgba(179, 35, 35, 0.36)';
+}
+
+function applySquareColorHeatmapOverlay(active) {
+  const squareNodes = elements.board.querySelectorAll('square');
+  if (!active) {
+    elements.board.classList.remove('square-color-heatmap');
+    for (const node of squareNodes) {
+      node.classList.remove('square-color-heat');
+      node.style.removeProperty('--square-color-heat');
+      node.removeAttribute('title');
+    }
+    return;
+  }
+
+  elements.board.classList.add('square-color-heatmap');
+  for (const node of squareNodes) {
+    const squareClass = [...node.classList].find((name) => /^[a-h][1-8]$/.test(name));
+    if (!squareClass) {
+      continue;
+    }
+    const stats = getSquareColorStatsEntry(squareClass);
+    const label = stats.asked > 0
+      ? `${squareClass.toUpperCase()} ${stats.correct}/${stats.asked} (${Math.round((stats.correct * 100) / Math.max(1, stats.asked))}%)`
+      : `${squareClass.toUpperCase()} no data`;
+    node.classList.add('square-color-heat');
+    node.style.setProperty('--square-color-heat', squareColorHeatmapColor(squareClass));
+    node.setAttribute('title', label);
+  }
 }
 
 function isBlindClickInputActive() {
@@ -2147,7 +2266,9 @@ async function loadLichessPuzzle() {
     }
     state.displayMode = 'normal-pieces';
     elements.displayMode.value = state.displayMode;
-    state.boardOrientation = state.puzzle.playerColor === 'b' ? 'black' : 'white';
+    state.boardOrientation = state.puzzleFixedOrientation
+      ? 'white'
+      : (state.puzzle.playerColor === 'b' ? 'black' : 'white');
     state.puzzleViewIndex = contextStartPly;
     state.reviewPly = null;
 
@@ -2263,6 +2384,8 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.elapsedMs = 0;
   state.blindPuzzles.currentSquare = '';
   state.blindPuzzles.currentAnswer = '';
+  state.blindPuzzles.questionStartedAt = 0;
+  state.blindPuzzles.responseTimesMs = [];
   state.blindPuzzles.expectedSquares = new Set();
   state.blindPuzzles.givenSquares = new Set();
   state.blindPuzzles.roundUsedSquares = new Set();
@@ -2280,6 +2403,14 @@ function formatBlindTime(ms) {
   const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
   const ss = String(totalSec % 60).padStart(2, '0');
   return `${mm}:${ss}`;
+}
+
+function averageMs(values) {
+  if (!Array.isArray(values) || !values.length) {
+    return 0;
+  }
+  const sum = values.reduce((acc, item) => acc + (Number.isFinite(Number(item)) ? Number(item) : 0), 0);
+  return Math.round(sum / values.length);
 }
 
 function recordBlindAttempt(square, correct) {
@@ -2407,7 +2538,9 @@ function updateBlindPanel() {
   elements.blindProgress.textContent = `${bp.asked}/${bp.total}`;
   const extra = (bp.mode === 'bishop-movements' || bp.mode === 'knight-movements' || bp.mode === 'check')
     ? ` (${bp.givenSquares.size}/${bp.expectedSquares.size})`
-    : '';
+    : (bp.mode === 'square-colors' && bp.responseTimesMs.length
+      ? ` (avg ${averageMs(bp.responseTimesMs)} ms)`
+      : '');
   elements.blindCorrect.textContent = `${bp.correct}${extra}`;
   elements.blindTimer.textContent = formatBlindTime(bp.elapsedMs);
   renderBlindMovementFeedback(bp.mode);
@@ -2821,6 +2954,7 @@ function askNextSquareColorQuestion() {
   state.blindPuzzles.roundUsedSquares.add(sq);
   state.blindPuzzles.currentSquare = sq;
   state.blindPuzzles.currentAnswer = squareColorAnswer(sq);
+  state.blindPuzzles.questionStartedAt = Date.now();
   state.blindPuzzles.expectedSquares = new Set();
   state.blindPuzzles.givenSquares = new Set();
   elements.statusText.textContent = 'Say: białe or czarne';
@@ -2863,7 +2997,38 @@ function finishSquareColors(success) {
   stopBlindPuzzleTimer();
   updateBlindPanel();
   if (success) {
-    elements.statusText.textContent = `Game over. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
+    const total = state.blindPuzzles.total;
+    const achievedTotalMs = Math.max(1, Math.floor(state.blindPuzzles.elapsedMs));
+    const achievedAvgMs = Math.max(0, averageMs(state.blindPuzzles.responseTimesMs));
+    const countKey = String(total);
+    const prevBestTotal = Number(state.squareColorRecords.bestTotalMsByCount[countKey]);
+    const validPrevBestTotal = Number.isFinite(prevBestTotal) && prevBestTotal > 0 ? prevBestTotal : null;
+    const beatBestTotal = validPrevBestTotal === null || achievedTotalMs < validPrevBestTotal;
+    const bestTotalAfter = beatBestTotal ? achievedTotalMs : validPrevBestTotal;
+    state.squareColorRecords.bestTotalMsByCount[countKey] = bestTotalAfter;
+
+    let bestAvgAfter = null;
+    let beatBestAvg = false;
+    if (total >= 20) {
+      const prevBestAvg = Number(state.squareColorRecords.bestAvgMsGte20);
+      const validPrevBestAvg = Number.isFinite(prevBestAvg) && prevBestAvg > 0 ? prevBestAvg : null;
+      beatBestAvg = validPrevBestAvg === null || achievedAvgMs < validPrevBestAvg;
+      bestAvgAfter = beatBestAvg ? achievedAvgMs : validPrevBestAvg;
+      state.squareColorRecords.bestAvgMsGte20 = bestAvgAfter;
+    }
+    writeSquareColorRecords();
+
+    const lines = [
+      `Congratulations! Perfect score ${state.blindPuzzles.correct}/${total}.`,
+      `Time: ${formatBlindTime(achievedTotalMs)} (Best: ${formatBlindTime(bestTotalAfter)}).`
+    ];
+    if (total >= 20 && bestAvgAfter !== null) {
+      lines.push(`Avg: ${achievedAvgMs} ms (Best: ${bestAvgAfter} ms).`);
+    }
+    if (beatBestTotal || beatBestAvg) {
+      lines.push('New personal record! Celebration time!');
+    }
+    elements.statusText.textContent = lines.join(' ');
   } else {
     elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
   }
@@ -2896,6 +3061,11 @@ function applySquareColorAnswer(answer) {
   }
   const oneShotActive = state.voiceOneShot;
   const currentSquare = state.blindPuzzles.currentSquare;
+  const startedAt = Number(state.blindPuzzles.questionStartedAt);
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    state.blindPuzzles.responseTimesMs.push(Math.max(0, Date.now() - startedAt));
+  }
+  state.blindPuzzles.questionStartedAt = 0;
 
   state.blindPuzzles.asked += 1;
   if (answer !== state.blindPuzzles.currentAnswer) {
@@ -4483,6 +4653,8 @@ function updateVoiceUi() {
   elements.moveInputs.classList.toggle('voice-active', hideMoveForm);
   if (!state.voiceMode) {
     elements.voiceStatus.textContent = '';
+  } else if (document.hidden) {
+    elements.voiceStatus.textContent = 'Voice paused while app is in background.';
   } else if (isWaitingForComputerMove()) {
     elements.voiceStatus.textContent = 'Waiting for computer move...';
   } else if (!state.voiceListening && !elements.voiceStatus.textContent) {
@@ -4689,7 +4861,70 @@ function closeConfigModal() {
   elements.configModal.hidden = true;
 }
 
+function clearVoiceRestartTimer() {
+  if (voiceState.restartTimerId === null) {
+    return;
+  }
+  window.clearTimeout(voiceState.restartTimerId);
+  voiceState.restartTimerId = null;
+}
+
+function clearVoiceStartWatchdog() {
+  if (voiceState.startWatchdogId === null) {
+    return;
+  }
+  window.clearTimeout(voiceState.startWatchdogId);
+  voiceState.startWatchdogId = null;
+}
+
+function clearVoiceScheduledWork() {
+  clearVoiceRestartTimer();
+  clearVoiceStartWatchdog();
+  voiceState.startAttemptId += 1;
+}
+
+function destroyVoiceRecognition({ abortActive = true } = {}) {
+  clearVoiceScheduledWork();
+  voiceState.startLock = false;
+  const recognition = voiceState.recognition;
+  if (recognition) {
+    recognition.onstart = null;
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+    if (abortActive) {
+      try {
+        if (typeof recognition.abort === 'function') {
+          recognition.abort();
+        } else {
+          recognition.stop();
+        }
+      } catch (_error) {
+        // ignore teardown failures
+      }
+    }
+  }
+  voiceState.recognition = null;
+  state.voiceListening = false;
+}
+
+function scheduleVoiceListeningRestart(delayMs = 180) {
+  clearVoiceRestartTimer();
+  if (!state.voiceMode) {
+    return;
+  }
+  const waitMs = Math.max(60, Math.floor(Number(delayMs) || 0));
+  voiceState.restartTimerId = window.setTimeout(() => {
+    voiceState.restartTimerId = null;
+    startVoiceListening();
+  }, waitMs);
+}
+
 function ensureVoiceRecognition() {
+  if (voiceState.forceRecreateOnNextStart) {
+    destroyVoiceRecognition();
+    voiceState.forceRecreateOnNextStart = false;
+  }
   if (voiceState.recognition) {
     return voiceState.recognition;
   }
@@ -4704,7 +4939,9 @@ function ensureVoiceRecognition() {
   recognition.interimResults = false;
 
   recognition.onstart = () => {
+    clearVoiceStartWatchdog();
     state.voiceListening = true;
+    voiceState.consecutiveFailures = 0;
     elements.voiceStatus.textContent = 'Listening...';
     updateVoiceUi();
   };
@@ -4733,9 +4970,24 @@ function ensureVoiceRecognition() {
     }
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = (event) => {
+    clearVoiceStartWatchdog();
     state.voiceListening = false;
+    const errorCode = String(event?.error ?? '');
+    if (errorCode === 'not-allowed' || errorCode === 'service-not-allowed') {
+      elements.statusText.textContent = 'Microphone permission denied. Enable it in browser settings.';
+      setVoiceMode(false);
+      return;
+    }
+    if (errorCode === 'aborted' && !canListenToVoiceNow()) {
+      updateVoiceUi();
+      return;
+    }
     if (state.voiceMode) {
+      voiceState.consecutiveFailures += 1;
+      if (voiceState.consecutiveFailures >= 2) {
+        voiceState.forceRecreateOnNextStart = true;
+      }
       elements.voiceStatus.textContent = 'Voice recognition error. Retrying...';
     } else {
       elements.voiceStatus.textContent = 'Voice recognition stopped.';
@@ -4743,11 +4995,18 @@ function ensureVoiceRecognition() {
   };
 
   recognition.onend = () => {
+    clearVoiceStartWatchdog();
     state.voiceListening = false;
     updateVoiceUi();
-    if (state.voiceMode) {
-      window.setTimeout(startVoiceListening, 180);
+    if (!state.voiceMode) {
+      return;
     }
+    if (voiceState.forceRecreateOnNextStart || voiceState.consecutiveFailures >= 2) {
+      destroyVoiceRecognition({ abortActive: false });
+      voiceState.forceRecreateOnNextStart = false;
+    }
+    const delayMs = Math.min(1500, 180 + (voiceState.consecutiveFailures * 220));
+    scheduleVoiceListeningRestart(delayMs);
   };
 
   voiceState.recognition = recognition;
@@ -4755,6 +5014,7 @@ function ensureVoiceRecognition() {
 }
 
 function startVoiceListening() {
+  clearVoiceRestartTimer();
   if (!state.voiceMode || voiceState.startLock || !canListenToVoiceNow()) {
     updateVoiceUi();
     return;
@@ -4768,11 +5028,38 @@ function startVoiceListening() {
   }
 
   recognition.lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
+  const attemptId = ++voiceState.startAttemptId;
+  clearVoiceStartWatchdog();
+  voiceState.startWatchdogId = window.setTimeout(() => {
+    voiceState.startWatchdogId = null;
+    if (!state.voiceMode || state.voiceListening || attemptId !== voiceState.startAttemptId) {
+      return;
+    }
+    voiceState.consecutiveFailures += 1;
+    voiceState.forceRecreateOnNextStart = true;
+    elements.voiceStatus.textContent = 'Voice did not start. Retrying...';
+    updateVoiceUi();
+    destroyVoiceRecognition();
+    const retryMs = Math.min(1600, 260 + (voiceState.consecutiveFailures * 240));
+    scheduleVoiceListeningRestart(retryMs);
+  }, 2200);
+
   voiceState.startLock = true;
   try {
     recognition.start();
-  } catch (_error) {
-    // `start` can throw if called while already active.
+  } catch (error) {
+    clearVoiceStartWatchdog();
+    const errorName = String(error?.name ?? '');
+    const alreadyActive = errorName === 'InvalidStateError' && state.voiceListening;
+    if (!alreadyActive) {
+      voiceState.consecutiveFailures += 1;
+      voiceState.forceRecreateOnNextStart = true;
+      elements.voiceStatus.textContent = 'Voice failed to start. Retrying...';
+      updateVoiceUi();
+      destroyVoiceRecognition();
+      const retryMs = Math.min(1600, 240 + (voiceState.consecutiveFailures * 220));
+      scheduleVoiceListeningRestart(retryMs);
+    }
   } finally {
     window.setTimeout(() => {
       voiceState.startLock = false;
@@ -4780,7 +5067,14 @@ function startVoiceListening() {
   }
 }
 
-function stopVoiceListening() {
+function stopVoiceListening({ hardReset = false } = {}) {
+  clearVoiceScheduledWork();
+  if (hardReset) {
+    destroyVoiceRecognition();
+    voiceState.consecutiveFailures = 0;
+    voiceState.forceRecreateOnNextStart = false;
+    return;
+  }
   const recognition = voiceState.recognition;
   if (!recognition) {
     state.voiceListening = false;
@@ -4789,20 +5083,25 @@ function stopVoiceListening() {
   try {
     recognition.stop();
   } catch (_error) {
-    // ignore
+    // ignore stop failures
   }
   state.voiceListening = false;
 }
 
 function setVoiceMode(enabled) {
+  const wasEnabled = state.voiceMode;
   state.voiceMode = enabled;
   if (!enabled) {
     state.voiceOneShot = false;
   }
   if (enabled) {
+    if (!wasEnabled) {
+      voiceState.forceRecreateOnNextStart = true;
+      voiceState.consecutiveFailures = 0;
+    }
     refreshVoiceListeningState();
   } else {
-    stopVoiceListening();
+    stopVoiceListening({ hardReset: true });
   }
   updateVoiceUi();
 }
@@ -4818,12 +5117,12 @@ function isWaitingForComputerMove() {
 }
 
 function canListenToVoiceNow() {
-  return state.voiceMode && !isWaitingForComputerMove() && !state.speaking;
+  return state.voiceMode && !isWaitingForComputerMove() && !state.speaking && !document.hidden;
 }
 
 function refreshVoiceListeningState() {
   if (!state.voiceMode) {
-    stopVoiceListening();
+    stopVoiceListening({ hardReset: true });
     updateVoiceUi();
     return;
   }
@@ -4954,8 +5253,8 @@ elements.moveLanguage.addEventListener('change', () => {
   updateLastMove();
   updatePuzzlePanel();
   if (state.voiceMode) {
-    stopVoiceListening();
-    window.setTimeout(startVoiceListening, 120);
+    stopVoiceListening({ hardReset: true });
+    scheduleVoiceListeningRestart(180);
   }
 });
 
@@ -5048,6 +5347,16 @@ elements.puzzleAutoOpponent.addEventListener('change', () => {
   writeSettings();
 });
 
+elements.puzzleFixedOrientation.addEventListener('change', () => {
+  state.puzzleFixedOrientation = elements.puzzleFixedOrientation.checked;
+  if (state.puzzleFixedOrientation && state.sessionMode === 'puzzle') {
+    state.boardOrientation = 'white';
+    clearBlindClickSelection();
+    updateBoard();
+  }
+  writeSettings();
+});
+
 elements.puzzleDifficulty.addEventListener('change', () => {
   state.puzzleDifficulty = elements.puzzleDifficulty.value;
   writeSettings();
@@ -5134,6 +5443,12 @@ elements.revealBtn.addEventListener('click', () => {
 });
 
 elements.rotateBoardBtn.addEventListener('click', () => {
+  if (state.sessionMode === 'puzzle' && state.puzzleFixedOrientation) {
+    state.boardOrientation = 'white';
+    clearBlindClickSelection();
+    updateBoard();
+    return;
+  }
   state.boardOrientation = state.boardOrientation === 'white' ? 'black' : 'white';
   clearBlindClickSelection();
   updateBoard();
@@ -5210,7 +5525,7 @@ elements.configModal.addEventListener('click', (event) => {
 
 window.addEventListener('beforeunload', () => {
   state.voiceMode = false;
-  stopVoiceListening();
+  stopVoiceListening({ hardReset: true });
   stopStockfishWorker();
 });
 
@@ -5229,6 +5544,20 @@ window.addEventListener('keydown', (event) => {
 
 window.addEventListener('resize', () => {
   applyRuntimeLayoutOverrides();
+});
+
+window.addEventListener('visibilitychange', () => {
+  if (!state.voiceMode) {
+    return;
+  }
+  if (document.hidden) {
+    stopVoiceListening({ hardReset: true });
+    updateVoiceUi();
+    return;
+  }
+  voiceState.forceRecreateOnNextStart = true;
+  scheduleVoiceListeningRestart(180);
+  updateVoiceUi();
 });
 
 window.addEventListener('pointerdown', () => {
@@ -5283,6 +5612,7 @@ async function bootstrapApp() {
   state.gameExercises = buildGameExercises();
   state.gameSolved = readSolvedGames();
   state.squareColorStats = readSquareColorStats();
+  state.squareColorRecords = readSquareColorRecords();
   loadSettingsIntoState();
   populateTtsVoices();
   syncEngineControlUi();

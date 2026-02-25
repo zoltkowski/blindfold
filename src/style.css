@@ -734,6 +734,10 @@ body.puzzle-mode .moves-wrap {
   box-shadow: inset 0 0 0 0.24em rgba(255, 196, 0, 0.95), inset 0 0 0 0.34em rgba(34, 28, 8, 0.55);
 }
 
+.board.square-color-heatmap square.square-color-heat {
+  box-shadow: inset 0 0 0 999px var(--square-color-heat, rgba(126, 133, 141, 0.2));
+}
+
 /* Blindfold modes */
 .board[data-mode='different-disks'][data-reveal='false'] piece,
 .board[data-mode='same-disks'][data-reveal='false'] piece {
