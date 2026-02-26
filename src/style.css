@@ -458,6 +458,11 @@ button:hover {
   flex: 1;
 }
 
+#boardRevealRow .engine-meta {
+  justify-content: flex-start;
+  width: auto;
+}
+
 .status-row {
   margin-top: 1rem;
   display: flex;
@@ -1086,6 +1091,10 @@ body.puzzle-mode .moves-wrap {
   }
 
   #displayModeRow > select {
+    font-size: 0.84rem;
+  }
+
+  #boardRevealRow .engine-meta {
     font-size: 0.84rem;
   }
 

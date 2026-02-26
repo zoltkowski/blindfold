@@ -46,6 +46,10 @@ app.innerHTML = `
             <option value="black-pieces-white-disks">Black Pieces, White Disks</option>
           </select>
         </label>
+        <label id="boardRevealRow">
+          <span class="engine-meta"><span id="boardRevealValue">Board reveal: never</span></span>
+          <input id="boardReveal" type="range" min="2" max="33" step="1" value="33" />
+        </label>
       </div>
 
       <div id="configModal" class="config-modal" hidden>
@@ -285,6 +289,9 @@ const elements = {
   configModal: document.getElementById('configModal'),
   displayModeRow: document.getElementById('displayModeRow'),
   displayMode: document.getElementById('displayMode'),
+  boardRevealRow: document.getElementById('boardRevealRow'),
+  boardReveal: document.getElementById('boardReveal'),
+  boardRevealValue: document.getElementById('boardRevealValue'),
   moveLanguage: document.getElementById('moveLanguage'),
   optionEngineStrength: document.getElementById('optionEngineStrength'),
   optionStrengthValue: document.getElementById('optionStrengthValue'),
@@ -373,6 +380,8 @@ const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
 const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY];
+const BOARD_REVEAL_MIN = 2;
+const BOARD_REVEAL_NEVER = 33;
 
 const persistentStorage = {
   initPromise: null,
@@ -562,6 +571,7 @@ const state = {
   showCoordinates: false,
   showLastMove: true,
   showMoveMarks: true,
+  boardRevealEvery: BOARD_REVEAL_NEVER,
   darkMode: false,
   showOnScreenKeyboard: false,
   ttsVoiceUri: '',
@@ -1058,6 +1068,7 @@ function writeSettings() {
     showCoordinates: state.showCoordinates,
     showLastMove: state.showLastMove,
     showMoveMarks: state.showMoveMarks,
+    boardRevealEvery: state.boardRevealEvery,
     darkMode: state.darkMode,
     showOnScreenKeyboard: state.showOnScreenKeyboard,
     ttsVoiceUri: state.ttsVoiceUri,
@@ -1121,6 +1132,9 @@ function loadSettingsIntoState() {
   if (typeof saved.showMoveMarks === 'boolean') {
     state.showMoveMarks = saved.showMoveMarks;
   }
+  if (Number.isFinite(Number(saved.boardRevealEvery))) {
+    state.boardRevealEvery = Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(Number(saved.boardRevealEvery))));
+  }
   if (typeof saved.darkMode === 'boolean') {
     state.darkMode = saved.darkMode;
   }
@@ -1149,6 +1163,8 @@ function applySettingsToUi() {
   elements.showCoordinates.checked = state.showCoordinates;
   elements.showLastMove.checked = state.showLastMove;
   elements.showMoveMarks.checked = state.showMoveMarks;
+  elements.boardReveal.value = String(state.boardRevealEvery);
+  elements.boardRevealValue.textContent = formatBoardRevealLabel(state.boardRevealEvery);
   elements.darkMode.checked = state.darkMode;
   elements.showOnScreenKeyboard.checked = state.showOnScreenKeyboard;
   elements.ttsRate.value = String(state.ttsRate);
@@ -1212,6 +1228,14 @@ const voiceState = {
   consecutiveFailures: 0,
   forceRecreateOnNextStart: false
 };
+
+function formatBoardRevealLabel(value) {
+  const bounded = Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(Number(value) || BOARD_REVEAL_NEVER)));
+  if (bounded >= BOARD_REVEAL_NEVER) {
+    return 'Board reveal: never';
+  }
+  return `Board reveal: after ${bounded} moves`;
+}
 
 function getAvailableTtsVoices() {
   if (typeof speechSynthesis === 'undefined' || typeof speechSynthesis.getVoices !== 'function') {
@@ -1410,8 +1434,38 @@ function fenToPieces(fen) {
   return pieces;
 }
 
+function countPlayerMovesPlayed() {
+  const playerColor = state.userColor === 'white' ? 'w' : 'b';
+  let count = 0;
+  for (const mv of state.game.history({ verbose: true })) {
+    if (mv.color === playerColor) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function isAutoBoardRevealNow() {
+  if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()) {
+    return false;
+  }
+  const interval = Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(Number(state.boardRevealEvery) || BOARD_REVEAL_NEVER)));
+  if (interval >= BOARD_REVEAL_NEVER) {
+    return false;
+  }
+  if (!isUserTurn()) {
+    return false;
+  }
+  const nextPlayerMove = countPlayerMovesPlayed() + 1;
+  return nextPlayerMove % interval === 0;
+}
+
+function isBoardRevealActive() {
+  return state.revealPosition || isAutoBoardRevealNow();
+}
+
 function transformPiecesForDisplay(realPieces) {
-  if (state.revealPosition) {
+  if (isBoardRevealActive()) {
     return realPieces;
   }
 
@@ -1451,12 +1505,13 @@ function transformPiecesForDisplay(realPieces) {
 
 function updateBoard() {
   elements.board.dataset.mode = state.displayMode;
-  elements.board.dataset.reveal = String(state.revealPosition);
+  const boardRevealActive = isBoardRevealActive();
+  elements.board.dataset.reveal = String(boardRevealActive);
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors'
-    && state.revealPosition;
-  const boardHidden = (state.sessionMode === 'blind-puzzles' && !state.revealPosition)
-    || (state.displayMode === 'no-board' && !state.revealPosition);
+    && boardRevealActive;
+  const boardHidden = (state.sessionMode === 'blind-puzzles' && !boardRevealActive)
+    || (state.displayMode === 'no-board' && !boardRevealActive);
   const suppressVisualMarks = shouldSuppressVisualMarks();
   elements.boardShell.classList.toggle('is-hidden', boardHidden);
   elements.boardShell.classList.toggle('is-blind-hidden', state.sessionMode === 'blind-puzzles' && boardHidden);
@@ -1586,7 +1641,7 @@ function isBlindClickInputActive() {
   if (!isUserTurn()) {
     return false;
   }
-  if (state.revealPosition) {
+  if (isBoardRevealActive()) {
     return false;
   }
   if (state.displayMode === 'no-pieces') {
@@ -4767,6 +4822,9 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideMain;
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
+  const showBoardRevealRow = !hideMain && state.displayMode !== 'normal-pieces';
+  elements.boardRevealRow.hidden = !showBoardRevealRow;
+  elements.boardRevealRow.style.display = showBoardRevealRow ? '' : 'none';
   const hideMoveInputs = beforeGameStart
     || hideBelowSlider
     || (inBlind && !inBlindVoiceControls);
@@ -5305,6 +5363,21 @@ elements.displayMode.addEventListener('change', () => {
   state.displayMode = elements.displayMode.value;
   clearBlindClickSelection();
   updateBoard();
+  updateMainControlsVisibility();
+});
+
+elements.boardReveal.addEventListener('input', () => {
+  const value = Number(elements.boardReveal.value);
+  const bounded = Number.isFinite(value)
+    ? Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(value)))
+    : BOARD_REVEAL_NEVER;
+  state.boardRevealEvery = bounded;
+  elements.boardReveal.value = String(bounded);
+  elements.boardRevealValue.textContent = formatBoardRevealLabel(bounded);
+  writeSettings();
+  if (state.sessionMode === 'game') {
+    updateBoard();
+  }
 });
 
 elements.moveLanguage.addEventListener('change', () => {
