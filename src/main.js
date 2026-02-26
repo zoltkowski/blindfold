@@ -47,8 +47,8 @@ app.innerHTML = `
           </select>
         </label>
         <label id="boardRevealRow">
-          <span class="engine-meta"><span id="boardRevealValue">Board reveal: never</span></span>
-          <input id="boardReveal" type="range" min="2" max="33" step="1" value="33" />
+          <span class="engine-meta"><span id="boardRevealValue">Board reveal: after 1 move</span></span>
+          <input id="boardReveal" type="range" min="1" max="33" step="1" value="1" />
         </label>
       </div>
 
@@ -380,7 +380,7 @@ const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
 const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY];
-const BOARD_REVEAL_MIN = 2;
+const BOARD_REVEAL_MIN = 1;
 const BOARD_REVEAL_NEVER = 33;
 
 const persistentStorage = {
@@ -571,7 +571,7 @@ const state = {
   showCoordinates: false,
   showLastMove: true,
   showMoveMarks: true,
-  boardRevealEvery: BOARD_REVEAL_NEVER,
+  boardRevealEvery: BOARD_REVEAL_MIN,
   darkMode: false,
   showOnScreenKeyboard: false,
   ttsVoiceUri: '',
@@ -1234,7 +1234,8 @@ function formatBoardRevealLabel(value) {
   if (bounded >= BOARD_REVEAL_NEVER) {
     return 'Board reveal: never';
   }
-  return `Board reveal: after ${bounded} moves`;
+  const suffix = bounded === 1 ? 'move' : 'moves';
+  return `Board reveal: after ${bounded} ${suffix}`;
 }
 
 function getAvailableTtsVoices() {
@@ -1445,11 +1446,18 @@ function countPlayerMovesPlayed() {
   return count;
 }
 
+function normalizedBoardRevealEvery() {
+  return Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(Number(state.boardRevealEvery) || BOARD_REVEAL_NEVER)));
+}
+
 function isAutoBoardRevealNow() {
   if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()) {
     return false;
   }
-  const interval = Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(Number(state.boardRevealEvery) || BOARD_REVEAL_NEVER)));
+  if (state.displayMode === 'normal-pieces') {
+    return false;
+  }
+  const interval = normalizedBoardRevealEvery();
   if (interval >= BOARD_REVEAL_NEVER) {
     return false;
   }
@@ -1462,6 +1470,28 @@ function isAutoBoardRevealNow() {
 
 function isBoardRevealActive() {
   return state.revealPosition || isAutoBoardRevealNow();
+}
+
+function boardGameForDisplayedPieces(boardGame) {
+  if (state.sessionMode !== 'game' || !state.gameStarted || state.displayMode !== 'normal-pieces') {
+    return boardGame;
+  }
+  if (state.game.isGameOver() || isReviewLocked() || state.revealPosition) {
+    return boardGame;
+  }
+  const interval = normalizedBoardRevealEvery();
+  if (interval <= 1 || interval >= BOARD_REVEAL_NEVER) {
+    return boardGame;
+  }
+  const verbose = state.game.history({ verbose: true });
+  if (!verbose.length) {
+    return boardGame;
+  }
+  const shownPlies = Math.floor(verbose.length / interval) * interval;
+  if (shownPlies === verbose.length) {
+    return boardGame;
+  }
+  return setGameFromVerboseMoves(verbose, shownPlies) ?? boardGame;
 }
 
 function transformPiecesForDisplay(realPieces) {
@@ -1518,8 +1548,9 @@ function updateBoard() {
   syncRevealButtonUi();
 
   const boardGame = getBoardGame();
+  const boardGameForPieces = boardGameForDisplayedPieces(boardGame);
   const reviewLocked = isReviewLocked();
-  const realPieces = fenToPieces(boardGame.fen());
+  const realPieces = fenToPieces(boardGameForPieces.fen());
   const transformed = transformPiecesForDisplay(realPieces);
   let pieces = transformed instanceof Map
     ? transformed
@@ -4822,7 +4853,7 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideMain;
   elements.displayModeRow.style.display = hideMain ? 'none' : '';
-  const showBoardRevealRow = !hideMain && state.displayMode !== 'normal-pieces';
+  const showBoardRevealRow = !hideMain;
   elements.boardRevealRow.hidden = !showBoardRevealRow;
   elements.boardRevealRow.style.display = showBoardRevealRow ? '' : 'none';
   const hideMoveInputs = beforeGameStart
@@ -5370,7 +5401,7 @@ elements.boardReveal.addEventListener('input', () => {
   const value = Number(elements.boardReveal.value);
   const bounded = Number.isFinite(value)
     ? Math.max(BOARD_REVEAL_MIN, Math.min(BOARD_REVEAL_NEVER, Math.floor(value)))
-    : BOARD_REVEAL_NEVER;
+    : BOARD_REVEAL_MIN;
   state.boardRevealEvery = bounded;
   elements.boardReveal.value = String(bounded);
   elements.boardRevealValue.textContent = formatBoardRevealLabel(bounded);
