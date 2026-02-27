@@ -99,7 +99,7 @@ select,
 
 .board-actions-main {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 4.4rem));
+  grid-template-columns: repeat(4, minmax(0, 4.15rem));
   gap: 0.45rem;
   width: auto;
 }
@@ -193,6 +193,28 @@ label {
   gap: 0.5rem;
 }
 
+.toggle-option-row {
+  gap: 0.45rem;
+}
+
+.toggle-option-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.toggle-option-buttons > button {
+  min-height: 2rem;
+  padding: 0.32rem 0.55rem;
+  line-height: 1.1;
+}
+
+.toggle-option-buttons > button.is-on {
+  background: #dfeeda;
+  border-color: #94c09d;
+  color: #1f4d2a;
+}
+
 input,
 select,
 button {
@@ -259,6 +281,56 @@ button:hover {
   display: none !important;
 }
 
+.follow-panel {
+  margin-top: 0.35rem;
+}
+
+.follow-controls {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.follow-field {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.follow-field select,
+.follow-field input[type="range"] {
+  width: 100%;
+}
+
+.follow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.follow-actions > button.is-on {
+  background: #dfeeda;
+  border-color: #94c09d;
+  color: #1f4d2a;
+}
+
+.follow-title {
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.follow-meta {
+  font-size: 0.86rem;
+  color: #5b5a55;
+}
+
+.follow-moves {
+  min-height: calc(1.35em * 3);
+}
+
+.follow-panel > button {
+  justify-self: start;
+  min-width: 7rem;
+}
+
 .blind-panel {
   border: none;
 }
@@ -299,6 +371,17 @@ button:hover {
 }
 
 .blind-panel.square-color-layout .blind-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.blind-panel.same-diagonal-layout .blind-prompt {
+  font-size: 2.6rem;
+  line-height: 1.05;
+  justify-self: center;
+  text-align: center;
+}
+
+.blind-panel.same-diagonal-layout .blind-main {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
@@ -568,6 +651,26 @@ body.blind-structured-mode #statusText {
   background: #a67853;
 }
 
+#sameDiagonalYesBtn {
+  background: #e4f5e7;
+  border-color: #a8d4b0;
+  color: #21532b;
+}
+
+#sameDiagonalYesBtn:hover {
+  background: #d7efdc;
+}
+
+#sameDiagonalNoBtn {
+  background: #f9e4e4;
+  border-color: #ddb1b1;
+  color: #6e2020;
+}
+
+#sameDiagonalNoBtn:hover {
+  background: #f4d8d8;
+}
+
 #blindStopBtn {
   grid-column: 1 / -1;
   background: #f4ece4;
@@ -584,6 +687,13 @@ body.blind-structured-mode #statusText {
   min-height: 1.9rem;
   display: flex;
   align-items: center;
+}
+
+#gameDrillPauseBtn {
+  margin-right: 0.55rem;
+  min-height: 1.7rem;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.74rem;
 }
 
 .last-move-text {
@@ -870,7 +980,7 @@ body.puzzle-mode .moves-wrap {
   }
 
   .board-actions-main {
-    grid-template-columns: repeat(3, minmax(0, 3.9rem));
+    grid-template-columns: repeat(4, minmax(0, 3.2rem));
     gap: 0.45rem;
   }
 
@@ -1293,6 +1403,12 @@ body.theme-dark button:hover {
   background: #27323d;
 }
 
+body.theme-dark .toggle-option-buttons > button.is-on {
+  background: #2b4d35;
+  border-color: #4b7d5a;
+  color: #def3e3;
+}
+
 body.theme-dark .move-no,
 body.theme-dark .muted {
   color: #a8b3bd;
@@ -1308,6 +1424,16 @@ body.theme-dark .move-token.puzzle-solution-move {
 
 body.theme-dark .puzzle-solved-face {
   color: #7dd592;
+}
+
+body.theme-dark .follow-meta {
+  color: #a8b3bd;
+}
+
+body.theme-dark .follow-actions > button.is-on {
+  background: #2b4d35;
+  border-color: #4b7d5a;
+  color: #def3e3;
 }
 
 body.theme-dark .move-token.clickable-move:hover {

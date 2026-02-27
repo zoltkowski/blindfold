@@ -13,3 +13,16 @@ ideas worth to consider:
 18. Streak + weekly goals + consistency scoring  
 
 19. Coach voice mode with short corrective hints, not full solutions  
+
+
+
+
+endgames - like positions, but mainly famous typical endgames (maybe just add them to positions?)
+
+
+może połączyć position/mate/game puzzle z New Game? (czyli gram od pewnej pozycji) - szukamy uproszczeń interfejsu
+
+
+
+
+
