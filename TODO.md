@@ -14,7 +14,7 @@ ideas worth to consider:
 
 19. Coach voice mode with short corrective hints, not full solutions  
 
-
+coordinte finder? - coordinate announced - user clicks/taps the correct square
 
 
 endgames - like positions, but mainly famous typical endgames (maybe just add them to positions?)

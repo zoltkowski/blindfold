@@ -326,7 +326,13 @@ button:hover {
   min-height: calc(1.35em * 3);
 }
 
-.follow-panel > button {
+.follow-browse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.follow-browse-actions > button {
   justify-self: start;
   min-width: 7rem;
 }

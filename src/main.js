@@ -226,7 +226,10 @@ app.innerHTML = `
         <div id="followGameTitle" class="follow-title">-</div>
         <div id="followGameMeta" class="follow-meta">-</div>
         <div id="followGameMoves" class="follow-moves">-</div>
-        <button id="followNextBtn" type="button">Next</button>
+        <div id="followBrowseActions" class="follow-browse-actions">
+          <button id="followNextBtn" type="button">Reveal Moves One by One</button>
+          <button id="followPlayBtn" type="button">Play</button>
+        </div>
       </div>
 
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
@@ -422,7 +425,9 @@ const elements = {
   followGameTitle: document.getElementById('followGameTitle'),
   followGameMeta: document.getElementById('followGameMeta'),
   followGameMoves: document.getElementById('followGameMoves'),
+  followBrowseActions: document.getElementById('followBrowseActions'),
   followNextBtn: document.getElementById('followNextBtn'),
+  followPlayBtn: document.getElementById('followPlayBtn'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
   blindPuzzlesBtn: document.getElementById('blindPuzzlesBtn'),
   openPuzzleLinkBtn: document.getElementById('openPuzzleLinkBtn'),
@@ -772,7 +777,11 @@ const state = {
     quizAutoColor: 'none',
     quizFeedback: '',
     quizEvalToken: 0,
-    quizEvaluating: false
+    quizEvaluating: false,
+    browseAutoPlay: false,
+    browseAnnouncing: false,
+    browsePendingToPly: null,
+    browseAnnounceToken: 0
   },
   puzzle: null,
   puzzleAutoPlaying: false,
@@ -1792,14 +1801,20 @@ function cancelTtsPlayback() {
   refreshVoiceListeningState();
 }
 
-function speakTtsSequence(texts, lang) {
+function speakTtsSequence(texts, lang, { onFinish = null } = {}) {
   if (typeof speechSynthesis === 'undefined') {
+    if (typeof onFinish === 'function') {
+      onFinish();
+    }
     return;
   }
   const queue = (Array.isArray(texts) ? texts : [])
     .map((item) => normalizeTtsText(item))
     .filter(Boolean);
   if (!queue.length) {
+    if (typeof onFinish === 'function') {
+      onFinish();
+    }
     return;
   }
 
@@ -1814,6 +1829,9 @@ function speakTtsSequence(texts, lang) {
     }
     state.speaking = false;
     refreshVoiceListeningState();
+    if (typeof onFinish === 'function') {
+      onFinish();
+    }
   };
 
   const speakNext = () => {
@@ -2775,6 +2793,41 @@ function followGameById(id) {
   return state.followGame.games.find((game) => String(game.id) === String(id)) ?? null;
 }
 
+function followBrowsePendingToPly() {
+  const total = followGameTotalPlies();
+  const raw = Number(state.followGame.browsePendingToPly);
+  if (!Number.isFinite(raw)) {
+    return null;
+  }
+  const bounded = Math.max(0, Math.min(total, Math.floor(raw)));
+  return bounded > state.followGame.shownPlies ? bounded : null;
+}
+
+function hasFollowBrowsePendingChunk() {
+  return followBrowsePendingToPly() !== null;
+}
+
+function syncFollowBrowseRuntimeState() {
+  if (state.followGame.browseAnnouncing && !state.speaking) {
+    state.followGame.browseAnnouncing = false;
+  }
+  state.followGame.browsePendingToPly = followBrowsePendingToPly();
+}
+
+function stopFollowBrowsePlayback({ keepPending = false, keepAutoPlay = false } = {}) {
+  state.followGame.browseAnnounceToken += 1;
+  if (state.followGame.browseAnnouncing && state.speaking) {
+    cancelTtsPlayback();
+  }
+  state.followGame.browseAnnouncing = false;
+  if (!keepPending) {
+    state.followGame.browsePendingToPly = null;
+  }
+  if (!keepAutoPlay) {
+    state.followGame.browseAutoPlay = false;
+  }
+}
+
 function applyFollowExpectedMove() {
   const expected = followExpectedMoveAtShownPly();
   if (!expected) {
@@ -2895,10 +2948,14 @@ function applyFollowQuizUserMove(text) {
 function resetFollowForCurrentSelection({ autoAdvanceBrowse = true } = {}) {
   const selected = followGameById(state.followGame.selectedId);
   state.followGame.quizEvalToken += 1;
+  stopFollowBrowsePlayback({ keepPending: false, keepAutoPlay: false });
   if (!selected) {
     state.followGame.current = null;
     state.followGame.shownPlies = 0;
+    state.followGame.chunkStartPly = 0;
     state.followGame.quizActive = false;
+    state.followGame.quizFeedback = '';
+    state.followGame.quizEvaluating = false;
     state.game = new Chess();
     updateAll();
     return;
@@ -2943,6 +3000,7 @@ function pickRandomFollowGameFromList() {
 }
 
 function setFollowMode(mode) {
+  stopFollowBrowsePlayback({ keepPending: false, keepAutoPlay: false });
   state.followGame.mode = normalizeFollowMode(mode);
   state.followGame.quizActive = false;
   state.followGame.quizFeedback = '';
@@ -2980,13 +3038,16 @@ function updateFollowPanel() {
     elements.followGameMeta.textContent = '-';
     elements.followGameMoves.textContent = '-';
     elements.followQuizStartRow.hidden = true;
-    elements.followNextBtn.hidden = false;
+    elements.followBrowseActions.hidden = false;
     elements.followRestartBtn.disabled = true;
     elements.followNextBtn.disabled = true;
-    elements.followNextBtn.textContent = 'Next';
+    elements.followNextBtn.textContent = 'Reveal Moves One by One';
+    elements.followPlayBtn.disabled = true;
+    elements.followPlayBtn.textContent = 'Play';
     return;
   }
 
+  syncFollowBrowseRuntimeState();
   syncFollowModeButtons();
   syncFollowGameSelectOptions();
   syncFollowQuizSliderBounds();
@@ -3000,16 +3061,19 @@ function updateFollowPanel() {
 
   const current = state.followGame.current;
   const hasLoadedGame = !!current;
+  const browsing = state.followGame.mode === 'browse';
   elements.followGamePickerRow.hidden = hasLoadedGame;
   elements.followGamePickerActions.hidden = hasLoadedGame;
+  elements.followBrowseActions.hidden = !browsing;
   if (!current) {
     elements.followGameTitle.textContent = 'No follow game selected.';
     elements.followGameMeta.textContent = '-';
     elements.followGameMoves.textContent = '-';
-    elements.followNextBtn.hidden = state.followGame.mode !== 'browse';
     elements.followRestartBtn.disabled = true;
     elements.followNextBtn.disabled = true;
-    elements.followNextBtn.textContent = 'Next';
+    elements.followNextBtn.textContent = 'Reveal Moves One by One';
+    elements.followPlayBtn.disabled = true;
+    elements.followPlayBtn.textContent = state.followGame.browseAutoPlay ? 'Pause' : 'Play';
     return;
   }
   elements.followRestartBtn.disabled = false;
@@ -3052,17 +3116,22 @@ function updateFollowPanel() {
   }
 
   const finished = shownPlies >= totalPlies;
-  const browsing = state.followGame.mode === 'browse';
-  elements.followNextBtn.hidden = !browsing;
-  elements.followNextBtn.disabled = !browsing || finished;
-  if (finished) {
+  const pendingToPly = followBrowsePendingToPly();
+  const hasPending = pendingToPly !== null;
+  const announcing = browsing && state.followGame.browseAnnouncing;
+  elements.followNextBtn.disabled = !browsing || announcing || (!hasPending && finished);
+  if (hasPending) {
+    const pendingMoves = Math.ceil((pendingToPly - shownPlies) / 2);
+    const suffix = pendingMoves === 1 ? 'move' : 'moves';
+    elements.followNextBtn.textContent = `Next (${pendingMoves} ${suffix})`;
+  } else if (finished) {
     elements.followNextBtn.textContent = 'Done';
-    return;
+  } else {
+    elements.followNextBtn.textContent = 'Reveal Moves One by One';
   }
-  const remainingPlies = totalPlies - shownPlies;
-  const previewMoves = Math.ceil(Math.min(remainingPlies, followChunkPlies()) / 2);
-  const suffix = previewMoves === 1 ? 'move' : 'moves';
-  elements.followNextBtn.textContent = `Next (${previewMoves} ${suffix})`;
+  const canPlay = browsing && (hasPending || announcing || !finished);
+  elements.followPlayBtn.disabled = !canPlay;
+  elements.followPlayBtn.textContent = state.followGame.browseAutoPlay ? 'Pause' : 'Play';
 }
 
 function setGameFromVerboseMoves(verboseMoves, plyCount) {
@@ -5044,22 +5113,29 @@ function followChunkMoves() {
 }
 
 function followChunkPlies() {
-  if (state.sessionMode === 'follow-game' && state.followGame.mode === 'browse') {
-    return 1;
-  }
   return followChunkMoves() * 2;
+}
+
+function followBrowseManualPlies() {
+  return 1;
 }
 
 function followGameTotalPlies() {
   return state.followGame.current?.moveVerbose?.length ?? 0;
 }
 
-function speakFollowGameChunk(startPly, endPly) {
+function speakFollowGameChunk(startPly, endPly, { onDone = null } = {}) {
   if (!elements.speakComputer.checked || typeof speechSynthesis === 'undefined') {
+    if (typeof onDone === 'function') {
+      onDone();
+    }
     return;
   }
   const current = state.followGame.current;
   if (!current) {
+    if (typeof onDone === 'function') {
+      onDone();
+    }
     return;
   }
   const sans = current.moveSans.slice(startPly, endPly);
@@ -5067,13 +5143,16 @@ function speakFollowGameChunk(startPly, endPly) {
     .map((san) => (state.moveLanguage === 'pl' ? sanToPolishSpeech(san) : sanToEnglishSpeech(san)))
     .filter(Boolean);
   if (!spokenMoves.length) {
+    if (typeof onDone === 'function') {
+      onDone();
+    }
     return;
   }
   if (state.speaking) {
     cancelTtsPlayback();
   }
   const lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
-  speakTtsSequence(spokenMoves, lang);
+  speakTtsSequence(spokenMoves, lang, { onFinish: onDone });
 }
 
 function setFollowGamePly(plyCount) {
@@ -5093,10 +5172,73 @@ function setFollowGamePly(plyCount) {
   return true;
 }
 
+function startFollowBrowseChunkAnnouncement() {
+  if (state.sessionMode !== 'follow-game'
+    || state.followGame.mode !== 'browse'
+    || !state.followGame.current
+    || state.followGame.browseAnnouncing
+    || hasFollowBrowsePendingChunk()) {
+    return false;
+  }
+  const from = state.followGame.shownPlies;
+  const total = followGameTotalPlies();
+  if (from >= total) {
+    return false;
+  }
+  const to = Math.min(total, from + followChunkPlies());
+  state.followGame.chunkStartPly = from;
+  state.followGame.browseAnnouncing = true;
+  const token = state.followGame.browseAnnounceToken + 1;
+  state.followGame.browseAnnounceToken = token;
+  updateAll();
+  speakFollowGameChunk(from, to, {
+    onDone: () => {
+      if (state.sessionMode !== 'follow-game'
+        || state.followGame.mode !== 'browse'
+        || state.followGame.browseAnnounceToken !== token) {
+        return;
+      }
+      state.followGame.browseAnnouncing = false;
+      state.followGame.browsePendingToPly = to;
+      updateAll();
+    }
+  });
+  return true;
+}
+
+function applyFollowBrowsePendingChunk() {
+  const to = followBrowsePendingToPly();
+  if (to === null) {
+    return false;
+  }
+  const from = state.followGame.shownPlies;
+  if (!setFollowGamePly(to)) {
+    elements.statusText.textContent = 'Cannot load follow game moves.';
+    return false;
+  }
+  state.followGame.chunkStartPly = from;
+  state.followGame.browsePendingToPly = null;
+  updateAll();
+  return true;
+}
+
 function advanceFollowGameChunk() {
   if (state.sessionMode !== 'follow-game'
     || state.followGame.mode !== 'browse'
     || !state.followGame.current) {
+    return;
+  }
+  syncFollowBrowseRuntimeState();
+  if (state.followGame.browseAnnouncing) {
+    elements.statusText.textContent = 'Announcing moves...';
+    return;
+  }
+  if (hasFollowBrowsePendingChunk()) {
+    applyFollowBrowsePendingChunk();
+    return;
+  }
+  if (state.followGame.browseAutoPlay) {
+    startFollowBrowseChunkAnnouncement();
     return;
   }
   const from = state.followGame.shownPlies;
@@ -5104,7 +5246,7 @@ function advanceFollowGameChunk() {
   if (from >= total) {
     return;
   }
-  const to = Math.min(total, from + followChunkPlies());
+  const to = Math.min(total, from + followBrowseManualPlies());
   if (!setFollowGamePly(to)) {
     elements.statusText.textContent = 'Cannot load follow game moves.';
     return;
@@ -5114,7 +5256,32 @@ function advanceFollowGameChunk() {
   speakFollowGameChunk(from, to);
 }
 
+function toggleFollowBrowsePlay() {
+  if (state.sessionMode !== 'follow-game'
+    || state.followGame.mode !== 'browse'
+    || !state.followGame.current) {
+    return;
+  }
+  syncFollowBrowseRuntimeState();
+  if (state.followGame.browseAutoPlay) {
+    stopFollowBrowsePlayback({ keepPending: true, keepAutoPlay: false });
+    updateAll();
+    return;
+  }
+  const finished = state.followGame.shownPlies >= followGameTotalPlies();
+  if (finished && !hasFollowBrowsePendingChunk()) {
+    return;
+  }
+  state.followGame.browseAutoPlay = true;
+  if (!hasFollowBrowsePendingChunk()) {
+    startFollowBrowseChunkAnnouncement();
+    return;
+  }
+  updateAll();
+}
+
 function resetFollowGameSelectionState() {
+  stopFollowBrowsePlayback({ keepPending: false, keepAutoPlay: false });
   state.followGame.quizEvalToken += 1;
   state.followGame.current = null;
   state.followGame.shownPlies = 0;
@@ -6626,10 +6793,19 @@ function updateStatus() {
       elements.statusText.textContent = 'No follow game selected.';
       return;
     }
+    syncFollowBrowseRuntimeState();
     const shownPlies = Math.max(0, Math.min(current.moveSans.length, state.followGame.shownPlies));
     const totalMoves = Math.ceil(current.moveSans.length / 2);
     const shownMoves = Math.ceil(shownPlies / 2);
     if (state.followGame.mode === 'browse') {
+      if (state.followGame.browseAnnouncing) {
+        elements.statusText.textContent = 'Announcing moves... board waits for Next.';
+        return;
+      }
+      if (hasFollowBrowsePendingChunk()) {
+        elements.statusText.textContent = 'Moves announced. Press Next to update board.';
+        return;
+      }
       if (shownPlies >= current.moveSans.length) {
         elements.statusText.textContent = `Follow browse finished (${totalMoves} moves).`;
         return;
@@ -7870,6 +8046,9 @@ elements.gameDrillPauseBtn.addEventListener('click', () => {
 });
 elements.followNextBtn.addEventListener('click', () => {
   advanceFollowGameChunk();
+});
+elements.followPlayBtn.addEventListener('click', () => {
+  toggleFollowBrowsePlay();
 });
 elements.showSolutionBtn.addEventListener('click', showPuzzleSolution);
 installLongPressAction(elements.reviewPrevBtn, reviewStepBack, reviewJumpFirst);
