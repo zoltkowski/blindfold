@@ -498,6 +498,7 @@ const STORAGE_STORE_NAME = 'app_kv';
 const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY];
 const BOARD_REVEAL_MIN = 1;
 const BOARD_REVEAL_NEVER = 33;
+const SQUARE_COLOR_WRONG_PENALTY_MS = 10000;
 const MATTING_TYPE_KEYS = ['kq', 'kr', 'kbb', 'kbn'];
 const MOVEMENT_MODE_KEYS = ['edge', 'route'];
 const MOVEMENT_PIECE_KEYS = ['bishop', 'knight'];
@@ -1062,12 +1063,17 @@ function sanitizeSquareColorStats(raw) {
     }
     const askedRaw = Number(value?.asked);
     const correctRaw = Number(value?.correct);
+    const penalizedTotalRaw = Number(value?.penalizedTotalMs);
     const asked = Number.isFinite(askedRaw) ? Math.max(0, Math.floor(askedRaw)) : 0;
     const correct = Number.isFinite(correctRaw) ? Math.max(0, Math.floor(correctRaw)) : 0;
+    const maxReasonableMs = asked > 0 ? (asked * 120000) : 0;
+    const penalizedTotalMs = Number.isFinite(penalizedTotalRaw)
+      ? Math.max(0, Math.min(Math.floor(penalizedTotalRaw), maxReasonableMs || Math.floor(penalizedTotalRaw)))
+      : 0;
     if (asked <= 0) {
       continue;
     }
-    out[square] = { asked, correct: Math.min(asked, correct) };
+    out[square] = { asked, correct: Math.min(asked, correct), penalizedTotalMs };
   }
   return out;
 }
@@ -2218,14 +2224,14 @@ function squareColorHeatClass(square) {
   if (stats.asked <= 0) {
     return 'square-color-heat square-color-heat-0';
   }
-  const ratio = stats.correct / Math.max(1, stats.asked);
-  if (ratio >= 0.85) {
+  const avgMs = squareColorHeatAverageMs(stats);
+  if (avgMs <= 2000) {
     return 'square-color-heat square-color-heat-4';
   }
-  if (ratio >= 0.65) {
+  if (avgMs <= 3500) {
     return 'square-color-heat square-color-heat-3';
   }
-  if (ratio >= 0.45) {
+  if (avgMs <= 5500) {
     return 'square-color-heat square-color-heat-2';
   }
   return 'square-color-heat square-color-heat-1';
@@ -2945,7 +2951,7 @@ function applyFollowQuizUserMove(text) {
   return true;
 }
 
-function resetFollowForCurrentSelection({ autoAdvanceBrowse = true } = {}) {
+function resetFollowForCurrentSelection({ autoAdvanceBrowse = true, quizStartPlyOverride = null } = {}) {
   const selected = followGameById(state.followGame.selectedId);
   state.followGame.quizEvalToken += 1;
   stopFollowBrowsePlayback({ keepPending: false, keepAutoPlay: false });
@@ -2965,7 +2971,14 @@ function resetFollowForCurrentSelection({ autoAdvanceBrowse = true } = {}) {
   state.followGame.quizEvaluating = false;
   if (state.followGame.mode === 'quiz') {
     state.followGame.quizActive = true;
-    const startPly = followStartPlyFromSelectedMove();
+    const totalPlies = selected.moveSans.length;
+    let startPly = followStartPlyFromSelectedMove();
+    const overrideRaw = Number(quizStartPlyOverride);
+    if (Number.isFinite(overrideRaw)) {
+      startPly = Math.max(0, Math.min(totalPlies, Math.floor(overrideRaw)));
+    }
+    const selectedMove = Math.max(1, Math.min(followTotalMoves(selected), Math.floor(startPly / 2) + 1));
+    state.followGame.quizStartMove = selectedMove;
     if (!setFollowGamePly(startPly)) {
       elements.statusText.textContent = 'Cannot load selected follow game.';
       return;
@@ -3000,13 +3013,23 @@ function pickRandomFollowGameFromList() {
 }
 
 function setFollowMode(mode) {
+  const previousMode = state.followGame.mode;
+  const nextMode = normalizeFollowMode(mode);
+  const quizStartPlyOverride = nextMode === 'quiz'
+    && previousMode === 'browse'
+    && state.followGame.current
+    ? state.followGame.shownPlies
+    : null;
   stopFollowBrowsePlayback({ keepPending: false, keepAutoPlay: false });
-  state.followGame.mode = normalizeFollowMode(mode);
+  state.followGame.mode = nextMode;
   state.followGame.quizActive = false;
   state.followGame.quizFeedback = '';
   state.followGame.quizEvaluating = false;
   state.followGame.quizEvalToken += 1;
-  resetFollowForCurrentSelection({ autoAdvanceBrowse: state.followGame.mode === 'browse' });
+  resetFollowForCurrentSelection({
+    autoAdvanceBrowse: state.followGame.mode === 'browse',
+    quizStartPlyOverride
+  });
 }
 
 function loadSelectedFollowGame() {
@@ -3268,6 +3291,7 @@ function puzzleProgressAbsPly() {
 
 function normalizeSanLooseMatch(san) {
   return String(san ?? '')
+    .replace(/[+#=x]/gi, '')
     .replace(/[^a-z0-9]/gi, '')
     .toLowerCase();
 }
@@ -3751,15 +3775,31 @@ function randomSquare() {
 function getSquareColorStatsEntry(square) {
   const key = String(square ?? '').toLowerCase();
   if (!isBoardSquare(key)) {
-    return { asked: 0, correct: 0 };
+    return { asked: 0, correct: 0, penalizedTotalMs: 0 };
   }
   const entry = state.squareColorStats[key];
   if (!entry || !Number.isFinite(entry.asked) || !Number.isFinite(entry.correct)) {
-    return { asked: 0, correct: 0 };
+    return { asked: 0, correct: 0, penalizedTotalMs: 0 };
   }
   const asked = Math.max(0, Math.floor(Number(entry.asked)));
   const correct = Math.max(0, Math.floor(Number(entry.correct)));
-  return { asked, correct: Math.min(asked, correct) };
+  const penalizedTotalMsRaw = Number(entry.penalizedTotalMs);
+  const penalizedTotalMs = Number.isFinite(penalizedTotalMsRaw)
+    ? Math.max(0, Math.floor(penalizedTotalMsRaw))
+    : 0;
+  return { asked, correct: Math.min(asked, correct), penalizedTotalMs };
+}
+
+function squareColorHeatAverageMs(stats) {
+  if (!stats || stats.asked <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (stats.penalizedTotalMs > 0) {
+    return stats.penalizedTotalMs / stats.asked;
+  }
+  // Backward compatibility for old stats without per-square timing.
+  const ratio = Math.max(0, Math.min(1, stats.correct / Math.max(1, stats.asked)));
+  return 1000 + ((1 - ratio) * 8000);
 }
 
 function compareSquareColorStats(a, b) {
@@ -3811,7 +3851,7 @@ function pickNextSquareColorSquare() {
   return bestSquares[Math.floor(Math.random() * bestSquares.length)];
 }
 
-function recordSquareColorStat(square, correct) {
+function recordSquareColorStat(square, correct, responseMs = 0) {
   const key = String(square ?? '').toLowerCase();
   if (!isBoardSquare(key)) {
     return;
@@ -3821,6 +3861,9 @@ function recordSquareColorStat(square, correct) {
   if (correct) {
     entry.correct += 1;
   }
+  const elapsedMs = Number.isFinite(Number(responseMs)) ? Math.max(0, Math.floor(Number(responseMs))) : 0;
+  const penalizedMs = correct ? elapsedMs : SQUARE_COLOR_WRONG_PENALTY_MS;
+  entry.penalizedTotalMs += penalizedMs;
   state.squareColorStats[key] = entry;
   writeSquareColorStats();
 }
@@ -4466,24 +4509,32 @@ function finishSquareColors(success) {
     const beatBestTotal = validPrevBestTotal === null || achievedTotalMs < validPrevBestTotal;
     const bestTotalAfter = beatBestTotal ? achievedTotalMs : validPrevBestTotal;
     state.squareColorRecords.bestTotalMsByCount[countKey] = bestTotalAfter;
+    const bestTotalLabel = beatBestTotal
+      ? `${formatBlindTime(bestTotalAfter)} (prev: ${validPrevBestTotal !== null ? formatBlindTime(validPrevBestTotal) : '-'})`
+      : formatBlindTime(bestTotalAfter);
 
     let bestAvgAfter = null;
+    let validPrevBestAvg = null;
     let beatBestAvg = false;
+    let bestAvgLabel = null;
     if (total >= 20) {
       const prevBestAvg = Number(state.squareColorRecords.bestAvgMsGte20);
-      const validPrevBestAvg = Number.isFinite(prevBestAvg) && prevBestAvg > 0 ? prevBestAvg : null;
+      validPrevBestAvg = Number.isFinite(prevBestAvg) && prevBestAvg > 0 ? prevBestAvg : null;
       beatBestAvg = validPrevBestAvg === null || achievedAvgMs < validPrevBestAvg;
       bestAvgAfter = beatBestAvg ? achievedAvgMs : validPrevBestAvg;
       state.squareColorRecords.bestAvgMsGte20 = bestAvgAfter;
+      bestAvgLabel = beatBestAvg
+        ? `${formatMsAsSeconds(bestAvgAfter)} (prev: ${validPrevBestAvg !== null ? formatMsAsSeconds(validPrevBestAvg) : '-'})`
+        : formatMsAsSeconds(bestAvgAfter);
     }
     writeSquareColorRecords();
 
     const lines = [
       `Congratulations! Result: ${state.blindPuzzles.correct}/${total}.`,
-      `Time: ${formatBlindTime(achievedTotalMs)} (Best: ${formatBlindTime(bestTotalAfter)}).`
+      `Time: ${formatBlindTime(achievedTotalMs)} (Best: ${bestTotalLabel}).`
     ];
-    if (total >= 20 && bestAvgAfter !== null) {
-      lines.push(`Avg: ${formatMsAsSeconds(achievedAvgMs)} (Best: ${formatMsAsSeconds(bestAvgAfter)}).`);
+    if (total >= 20 && bestAvgAfter !== null && bestAvgLabel !== null) {
+      lines.push(`Avg: ${formatMsAsSeconds(achievedAvgMs)} (Best: ${bestAvgLabel}).`);
     }
     if (beatBestTotal || beatBestAvg) {
       lines.push('New personal record! Celebration time!');
@@ -4523,19 +4574,21 @@ function applySquareColorAnswer(answer) {
   const oneShotActive = state.voiceOneShot;
   const currentSquare = state.blindPuzzles.currentSquare;
   const startedAt = Number(state.blindPuzzles.questionStartedAt);
+  let responseMs = 0;
   if (Number.isFinite(startedAt) && startedAt > 0) {
-    state.blindPuzzles.responseTimesMs.push(Math.max(0, Date.now() - startedAt));
+    responseMs = Math.max(0, Date.now() - startedAt);
+    state.blindPuzzles.responseTimesMs.push(responseMs);
   }
   state.blindPuzzles.questionStartedAt = 0;
 
   state.blindPuzzles.asked += 1;
   if (answer !== state.blindPuzzles.currentAnswer) {
-    recordSquareColorStat(currentSquare, false);
+    recordSquareColorStat(currentSquare, false, responseMs);
     finishSquareColors(false);
     return true;
   }
 
-  recordSquareColorStat(currentSquare, true);
+  recordSquareColorStat(currentSquare, true, responseMs);
   state.blindPuzzles.correct += 1;
   if (state.blindPuzzles.asked >= state.blindPuzzles.total) {
     finishSquareColors(true);
@@ -4637,9 +4690,10 @@ function askNextBishopRouteQuestion() {
     pieceRole: 'B',
     from,
     to,
-    shortest
+    shortest,
+    path: [from]
   };
-  elements.statusText.textContent = 'Say shortest path as squares, e.g. c1 e3 g5.';
+  elements.statusText.textContent = 'Enter next square on shortest path (step by step).';
   updateBlindPanel();
   speakBlindPrompt(`${from} ${to}`);
 }
@@ -4685,9 +4739,10 @@ function askNextKnightRouteQuestion() {
     pieceRole: 'N',
     from,
     to,
-    shortest
+    shortest,
+    path: [from]
   };
-  elements.statusText.textContent = 'Say shortest path as squares, e.g. g1 e2 f4.';
+  elements.statusText.textContent = 'Enter next square on shortest path (step by step).';
   updateBlindPanel();
   speakBlindPrompt(`${from} ${to}`);
 }
@@ -4741,39 +4796,47 @@ function handleMovementRouteVoice(transcript, nextAsker) {
     elements.statusText.textContent = 'No route task active.';
     return true;
   }
+  if (!Array.isArray(task.path) || !task.path.length || task.path[0] !== task.from) {
+    task.path = [task.from];
+  }
   const heardSquares = extractSquaresFromVoiceOrdered(transcript);
   if (!heardSquares.length) {
-    elements.statusText.textContent = 'Say path squares like c1 e3 g5.';
+    elements.statusText.textContent = 'Enter next square, e.g. e5 or Se5.';
     return true;
   }
-
-  let path = heardSquares.slice();
-  if (path[0] !== task.from) {
-    path = [task.from, ...path];
-  }
-  if (path[path.length - 1] !== task.to) {
-    elements.statusText.textContent = `Path must end on ${task.to}.`;
-    state.blindPuzzles.attemptedEntries = path.map((sq) => ({ square: sq, correct: true }));
-    updateBlindPanel();
-    return true;
-  }
-
-  for (let i = 1; i < path.length; i += 1) {
-    if (!canPieceStep(path[i - 1], path[i], task.pieceRole)) {
-      state.blindPuzzles.attemptedEntries = path.map((sq, idx) => ({ square: sq, correct: idx < i }));
-      finishBlindPuzzleGeneric(false, `Illegal step: ${path[i - 1]}-${path[i]}.`);
+  let acceptedAny = false;
+  for (const enteredSquare of heardSquares) {
+    const currentSquare = task.path[task.path.length - 1];
+    if (enteredSquare === currentSquare) {
+      continue;
+    }
+    if (!canPieceStep(currentSquare, enteredSquare, task.pieceRole)) {
+      state.blindPuzzles.attemptedEntries.push({ square: enteredSquare, correct: false });
+      finishBlindPuzzleGeneric(false, `Illegal step: ${currentSquare}-${enteredSquare}.`);
+      return true;
+    }
+    const usedMoves = task.path.length;
+    const remainingShortest = shortestRouteLength(task.pieceRole, enteredSquare, task.to);
+    if (!Number.isFinite(remainingShortest) || usedMoves + remainingShortest !== task.shortest) {
+      state.blindPuzzles.attemptedEntries.push({ square: enteredSquare, correct: false });
+      finishBlindPuzzleGeneric(false, `Step ${currentSquare}-${enteredSquare} is not part of a shortest route.`);
+      return true;
+    }
+    state.blindPuzzles.attemptedEntries.push({ square: enteredSquare, correct: true });
+    task.path.push(enteredSquare);
+    acceptedAny = true;
+    if (enteredSquare === task.to) {
+      updateBlindPanel();
+      finishBlindQuestionOrAskNext(nextAsker);
       return true;
     }
   }
-
-  state.blindPuzzles.attemptedEntries = path.map((sq) => ({ square: sq, correct: true }));
-  updateBlindPanel();
-  const usedMoves = path.length - 1;
-  if (usedMoves > task.shortest) {
-    finishBlindPuzzleGeneric(false, `Correct path, but not shortest (${usedMoves} vs ${task.shortest}).`);
+  if (!acceptedAny) {
+    elements.statusText.textContent = `Enter next square from ${task.path[task.path.length - 1]} toward ${task.to}.`;
     return true;
   }
-  finishBlindQuestionOrAskNext(nextAsker);
+  updateBlindPanel();
+  elements.statusText.textContent = `Good. Continue from ${task.path[task.path.length - 1]} to ${task.to}.`;
   return true;
 }
 
@@ -5356,9 +5419,20 @@ function maybeMarkGameSolved() {
   elements.statusText.textContent = `Game exercise solved and saved (${state.gameSolved.size}/${state.gameExercises.length}).`;
 }
 
+function maybeFinalizeBlindMattingSolved() {
+  if (!isBlindMattingMode() || !state.blindPuzzles.running) {
+    return;
+  }
+  if (!state.game.isCheckmate()) {
+    return;
+  }
+  state.blindPuzzles.running = false;
+}
+
 function maybeMarkBlindExerciseSolved() {
   maybeMarkPositionSolved();
   maybeMarkGameSolved();
+  maybeFinalizeBlindMattingSolved();
 }
 
 function gameDrillPrefixMoves() {
@@ -6092,16 +6166,20 @@ function findMatchingMove(text) {
     const target = (stripped.match(/([a-h][1-8])$/) ?? [])[1];
     const first = stripped[0];
     const wantedPiece = ({ K: 'k', Q: 'q', R: 'r', B: 'b', N: 'n' }[first] ?? 'p');
-    const capture = stripped.includes('x');
     const promotion = (stripped.match(/=([QRBN])$/) ?? [])[1]?.toLowerCase();
 
     if (target) {
       const candidates = legal.filter((mv) =>
         mv.to === target &&
         mv.piece === wantedPiece &&
-        (!promotion || mv.promotion === promotion) &&
-        (!capture || mv.flags.includes('c') || mv.flags.includes('e'))
+        (!promotion || mv.promotion === promotion)
       );
+      if (!promotion) {
+        const queenPromotion = candidates.filter((mv) => mv.promotion === 'q');
+        if (queenPromotion.length === 1) {
+          return queenPromotion[0];
+        }
+      }
       if (candidates.length === 1) {
         return candidates[0];
       }
@@ -6832,6 +6910,28 @@ function updateStatus() {
   }
   if (state.sessionMode === 'blind-puzzles'
     && isBlindMattingMode()) {
+    const fullHist = state.game.history({ verbose: false });
+    const viewed = Math.max(0, Math.min(fullHist.length, state.reviewPly ?? fullHist.length));
+    const atLatest = viewed >= fullHist.length;
+    if (!atLatest) {
+      if (viewed <= 0) {
+        elements.statusText.textContent = 'White move';
+        return;
+      }
+      const last = fullHist[viewed - 1];
+      const rendered = formatSanForDisplay(last);
+      elements.statusText.textContent = viewed % 2 === 0 ? `... ${rendered}` : rendered;
+      return;
+    }
+    if (state.game.isCheckmate()) {
+      const winner = state.game.turn() === 'w' ? 'Black' : 'White';
+      elements.statusText.textContent = `Checkmate. ${winner} wins. Use Prev/Next to review.`;
+      return;
+    }
+    if (state.game.isDraw()) {
+      elements.statusText.textContent = 'Draw. Use Prev/Next to review.';
+      return;
+    }
     elements.statusText.textContent = boardGame.turn() === 'w' ? 'white move' : 'black move';
     return;
   }
@@ -7488,7 +7588,7 @@ elements.moveForm.addEventListener('submit', (evt) => {
       elements.statusText.textContent = state.blindPuzzles.running
         ? ((state.blindPuzzles.mode === 'movements')
           && state.blindPuzzles.movementVariant === 'route'
-          ? 'Enter route squares like c1 e3 g5.'
+          ? 'Enter next route square, e.g. e5 or Se5.'
           : 'Enter squares like a1 h8 (and stop where needed).')
         : 'This puzzle is finished. Start a new one.';
     }
