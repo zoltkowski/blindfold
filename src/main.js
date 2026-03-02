@@ -771,6 +771,7 @@ const state = {
     current: null,
     shownPlies: 0,
     chunkStartPly: 0,
+    quizStartPly: 0,
     selectedId: '',
     mode: 'browse',
     quizActive: false,
@@ -2039,6 +2040,29 @@ function boardGameForDisplayedPieces(boardGame) {
     }
     return setGameFromVerboseMoves(verbose, shownPlies) ?? boardGame;
   }
+  if (state.sessionMode === 'follow-game' && state.followGame.mode === 'quiz') {
+    if (state.revealPosition) {
+      return boardGame;
+    }
+    const interval = normalizedBoardRevealEvery();
+    if (interval <= 1 || interval >= BOARD_REVEAL_NEVER) {
+      return boardGame;
+    }
+    const current = state.followGame.current;
+    if (!current || !Array.isArray(current.moveVerbose)) {
+      return boardGame;
+    }
+    const totalPlies = current.moveVerbose.length;
+    const shownPlies = Math.max(0, Math.min(totalPlies, Math.floor(Number(state.followGame.shownPlies) || 0)));
+    const startPlyRaw = Math.floor(Number(state.followGame.quizStartPly) || 0);
+    const startPly = Math.max(0, Math.min(shownPlies, startPlyRaw));
+    const revealPlies = shownPlies - startPly;
+    const revealedPlies = startPly + (Math.floor(revealPlies / interval) * interval);
+    if (revealedPlies === shownPlies) {
+      return boardGame;
+    }
+    return setGameFromVerboseMoves(current.moveVerbose, revealedPlies) ?? boardGame;
+  }
 
   if (state.sessionMode !== 'game' || !state.gameStarted || state.displayMode !== 'normal-pieces') {
     return boardGame;
@@ -2959,6 +2983,7 @@ function resetFollowForCurrentSelection({ autoAdvanceBrowse = true, quizStartPly
     state.followGame.current = null;
     state.followGame.shownPlies = 0;
     state.followGame.chunkStartPly = 0;
+    state.followGame.quizStartPly = 0;
     state.followGame.quizActive = false;
     state.followGame.quizFeedback = '';
     state.followGame.quizEvaluating = false;
@@ -2979,6 +3004,7 @@ function resetFollowForCurrentSelection({ autoAdvanceBrowse = true, quizStartPly
     }
     const selectedMove = Math.max(1, Math.min(followTotalMoves(selected), Math.floor(startPly / 2) + 1));
     state.followGame.quizStartMove = selectedMove;
+    state.followGame.quizStartPly = startPly;
     if (!setFollowGamePly(startPly)) {
       elements.statusText.textContent = 'Cannot load selected follow game.';
       return;
@@ -2988,6 +3014,7 @@ function resetFollowForCurrentSelection({ autoAdvanceBrowse = true, quizStartPly
     return;
   }
   state.followGame.quizActive = false;
+  state.followGame.quizStartPly = 0;
   if (!setFollowGamePly(0)) {
     elements.statusText.textContent = 'Cannot load selected follow game.';
     return;
@@ -5349,6 +5376,7 @@ function resetFollowGameSelectionState() {
   state.followGame.current = null;
   state.followGame.shownPlies = 0;
   state.followGame.chunkStartPly = 0;
+  state.followGame.quizStartPly = 0;
   state.followGame.quizActive = false;
   state.followGame.quizFeedback = '';
   state.followGame.quizEvaluating = false;
@@ -7655,7 +7683,7 @@ elements.boardReveal.addEventListener('input', () => {
   elements.boardReveal.value = String(bounded);
   elements.boardRevealValue.textContent = formatBoardRevealLabel(bounded);
   writeSettings();
-  if (state.sessionMode === 'game') {
+  if (state.sessionMode === 'game' || state.sessionMode === 'follow-game') {
     updateBoard();
   }
 });
