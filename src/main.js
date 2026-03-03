@@ -7436,19 +7436,25 @@ function ensureVoiceRecognition() {
     }
     const mappedVoiceMove = normalizeVoiceMoveForHandling(transcript);
     const heardText = mappedVoiceMove.display || transcript;
+    const moveInput = mappedVoiceMove.input || transcript;
     elements.voiceStatus.textContent = `Heard: ${heardText}`;
     if (state.sessionMode === 'blind-puzzles' && !isBlindPlayableGameMode()) {
       elements.statusText.textContent = 'Select a blind puzzle mode first.';
       return;
     }
-    const ok = applyPlayerMove(mappedVoiceMove.input || transcript);
-    if (!ok) {
-      elements.statusText.textContent = `Could not parse voice move: ${heardText}`;
-      return;
-    }
-    if (state.voiceOneShot) {
-      state.voiceOneShot = false;
+    const inPuzzleMoveCheck = state.sessionMode === 'puzzle' && !!state.puzzle && !state.puzzle.solved;
+    const recognizedMoveAttempt = inPuzzleMoveCheck
+      && (!!findMatchingMove(moveInput) || !!findLooseExpectedPuzzleMove(moveInput));
+    const ok = applyPlayerMove(moveInput);
+    const recognizedButWrong = !ok && recognizedMoveAttempt;
+    if (state.voiceOneShot && (ok || recognizedButWrong)) {
       setVoiceMode(false);
+    }
+    if (!ok) {
+      if (!recognizedButWrong) {
+        elements.statusText.textContent = `Could not parse voice move: ${heardText}`;
+      }
+      return;
     }
   };
 
