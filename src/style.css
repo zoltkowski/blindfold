@@ -869,7 +869,7 @@ body.puzzle-mode .moves-wrap {
 }
 
 .board.square-color-heatmap square.square-color-heat-0 {
-  box-shadow: inset 0 0 0 999px rgba(126, 133, 141, 0.2);
+  box-shadow: inset 0 0 0 999px rgba(126, 133, 141, 0.45);
 }
 
 .board.square-color-heatmap square.square-color-heat-1 {

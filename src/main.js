@@ -499,6 +499,7 @@ const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUA
 const BOARD_REVEAL_MIN = 1;
 const BOARD_REVEAL_NEVER = 33;
 const SQUARE_COLOR_WRONG_PENALTY_MS = 10000;
+const SQUARE_COLOR_HISTORY_SIZE = 5;
 const MATTING_TYPE_KEYS = ['kq', 'kr', 'kbb', 'kbn'];
 const MOVEMENT_MODE_KEYS = ['edge', 'route'];
 const MOVEMENT_PIECE_KEYS = ['bishop', 'knight'];
@@ -1064,17 +1065,29 @@ function sanitizeSquareColorStats(raw) {
     }
     const askedRaw = Number(value?.asked);
     const correctRaw = Number(value?.correct);
-    const penalizedTotalRaw = Number(value?.penalizedTotalMs);
     const asked = Number.isFinite(askedRaw) ? Math.max(0, Math.floor(askedRaw)) : 0;
     const correct = Number.isFinite(correctRaw) ? Math.max(0, Math.floor(correctRaw)) : 0;
-    const maxReasonableMs = asked > 0 ? (asked * 120000) : 0;
-    const penalizedTotalMs = Number.isFinite(penalizedTotalRaw)
-      ? Math.max(0, Math.min(Math.floor(penalizedTotalRaw), maxReasonableMs || Math.floor(penalizedTotalRaw)))
-      : 0;
-    if (asked <= 0) {
+    let lastTimesMs = Array.isArray(value?.lastTimesMs)
+      ? value.lastTimesMs
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item) && item >= 0)
+        .map((item) => Math.min(120000, Math.floor(item)))
+      : [];
+    if (lastTimesMs.length > SQUARE_COLOR_HISTORY_SIZE) {
+      lastTimesMs = lastTimesMs.slice(-SQUARE_COLOR_HISTORY_SIZE);
+    }
+    // Backward compatibility: approximate one recent sample from old aggregate format.
+    if (!lastTimesMs.length) {
+      const penalizedTotalRaw = Number(value?.penalizedTotalMs);
+      if (Number.isFinite(penalizedTotalRaw) && penalizedTotalRaw > 0 && asked > 0) {
+        lastTimesMs = [Math.min(120000, Math.floor(penalizedTotalRaw / Math.max(1, asked)))];
+      }
+    }
+    const normalizedAsked = Math.max(asked, lastTimesMs.length);
+    if (normalizedAsked <= 0) {
       continue;
     }
-    out[square] = { asked, correct: Math.min(asked, correct), penalizedTotalMs };
+    out[square] = { asked: normalizedAsked, correct: Math.min(normalizedAsked, correct), lastTimesMs };
   }
   return out;
 }
@@ -2245,20 +2258,20 @@ function syncRevealButtonUi() {
 
 function squareColorHeatClass(square) {
   const stats = getSquareColorStatsEntry(square);
-  if (stats.asked <= 0) {
-    return 'square-color-heat square-color-heat-0';
+  if (!Array.isArray(stats.lastTimesMs) || !stats.lastTimesMs.length) {
+    return 'square-color-heat-0';
   }
   const avgMs = squareColorHeatAverageMs(stats);
   if (avgMs <= 2000) {
-    return 'square-color-heat square-color-heat-4';
+    return 'square-color-heat-4';
   }
   if (avgMs <= 3500) {
-    return 'square-color-heat square-color-heat-3';
+    return 'square-color-heat-3';
   }
   if (avgMs <= 5500) {
-    return 'square-color-heat square-color-heat-2';
+    return 'square-color-heat-2';
   }
-  return 'square-color-heat square-color-heat-1';
+  return 'square-color-heat-1';
 }
 
 function squareColorHeatmapHighlights() {
@@ -3802,31 +3815,32 @@ function randomSquare() {
 function getSquareColorStatsEntry(square) {
   const key = String(square ?? '').toLowerCase();
   if (!isBoardSquare(key)) {
-    return { asked: 0, correct: 0, penalizedTotalMs: 0 };
+    return { asked: 0, correct: 0, lastTimesMs: [] };
   }
   const entry = state.squareColorStats[key];
   if (!entry || !Number.isFinite(entry.asked) || !Number.isFinite(entry.correct)) {
-    return { asked: 0, correct: 0, penalizedTotalMs: 0 };
+    return { asked: 0, correct: 0, lastTimesMs: [] };
   }
   const asked = Math.max(0, Math.floor(Number(entry.asked)));
   const correct = Math.max(0, Math.floor(Number(entry.correct)));
-  const penalizedTotalMsRaw = Number(entry.penalizedTotalMs);
-  const penalizedTotalMs = Number.isFinite(penalizedTotalMsRaw)
-    ? Math.max(0, Math.floor(penalizedTotalMsRaw))
-    : 0;
-  return { asked, correct: Math.min(asked, correct), penalizedTotalMs };
+  let lastTimesMs = Array.isArray(entry.lastTimesMs)
+    ? entry.lastTimesMs
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item >= 0)
+      .map((item) => Math.min(120000, Math.floor(item)))
+    : [];
+  if (lastTimesMs.length > SQUARE_COLOR_HISTORY_SIZE) {
+    lastTimesMs = lastTimesMs.slice(-SQUARE_COLOR_HISTORY_SIZE);
+  }
+  return { asked: Math.max(asked, lastTimesMs.length), correct: Math.min(Math.max(asked, lastTimesMs.length), correct), lastTimesMs };
 }
 
 function squareColorHeatAverageMs(stats) {
-  if (!stats || stats.asked <= 0) {
+  if (!stats || !Array.isArray(stats.lastTimesMs) || !stats.lastTimesMs.length) {
     return Number.POSITIVE_INFINITY;
   }
-  if (stats.penalizedTotalMs > 0) {
-    return stats.penalizedTotalMs / stats.asked;
-  }
-  // Backward compatibility for old stats without per-square timing.
-  const ratio = Math.max(0, Math.min(1, stats.correct / Math.max(1, stats.asked)));
-  return 1000 + ((1 - ratio) * 8000);
+  const sum = stats.lastTimesMs.reduce((acc, value) => acc + value, 0);
+  return sum / stats.lastTimesMs.length;
 }
 
 function compareSquareColorStats(a, b) {
@@ -3890,7 +3904,10 @@ function recordSquareColorStat(square, correct, responseMs = 0) {
   }
   const elapsedMs = Number.isFinite(Number(responseMs)) ? Math.max(0, Math.floor(Number(responseMs))) : 0;
   const penalizedMs = correct ? elapsedMs : SQUARE_COLOR_WRONG_PENALTY_MS;
-  entry.penalizedTotalMs += penalizedMs;
+  entry.lastTimesMs.push(Math.min(120000, penalizedMs));
+  if (entry.lastTimesMs.length > SQUARE_COLOR_HISTORY_SIZE) {
+    entry.lastTimesMs = entry.lastTimesMs.slice(-SQUARE_COLOR_HISTORY_SIZE);
+  }
   state.squareColorStats[key] = entry;
   writeSquareColorStats();
 }
