@@ -827,6 +827,7 @@ const state = {
     expectedSquares: new Set(),
     givenSquares: new Set(),
     roundUsedSquares: new Set(),
+    squareColorQueue: [],
     attemptedEntries: [],
     movementVariant: 'edge',
     movementPiece: 'B',
@@ -3608,6 +3609,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.expectedSquares = new Set();
   state.blindPuzzles.givenSquares = new Set();
   state.blindPuzzles.roundUsedSquares = new Set();
+  state.blindPuzzles.squareColorQueue = [];
   state.blindPuzzles.attemptedEntries = [];
   state.blindPuzzles.movementVariant = 'edge';
   state.blindPuzzles.movementPiece = 'B';
@@ -3870,7 +3872,58 @@ function compareSquareColorStats(a, b) {
   return 0;
 }
 
+function shuffleArrayInPlace(items) {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = items[i];
+    items[i] = items[j];
+    items[j] = tmp;
+  }
+  return items;
+}
+
+function buildSquareColorRoundQueue(questionCount) {
+  const total = Math.max(1, Math.min(64, Math.floor(Number(questionCount) || 1)));
+  const unasked = [];
+  const asked = [];
+  for (const square of ALL_BOARD_SQUARES) {
+    const stats = getSquareColorStatsEntry(square);
+    if (!Array.isArray(stats.lastTimesMs) || !stats.lastTimesMs.length) {
+      unasked.push(square);
+      continue;
+    }
+    asked.push({
+      square,
+      avgMs: squareColorHeatAverageMs(stats),
+      asked: stats.asked
+    });
+  }
+  shuffleArrayInPlace(unasked);
+  asked.sort((left, right) => {
+    if (right.avgMs !== left.avgMs) {
+      return right.avgMs - left.avgMs;
+    }
+    if (left.asked !== right.asked) {
+      return left.asked - right.asked;
+    }
+    return left.square.localeCompare(right.square);
+  });
+  const selected = unasked.slice(0, Math.min(total, unasked.length));
+  if (selected.length < total) {
+    const need = total - selected.length;
+    selected.push(...asked.slice(0, need).map((item) => item.square));
+  }
+  shuffleArrayInPlace(selected);
+  return selected;
+}
+
 function pickNextSquareColorSquare() {
+  if (Array.isArray(state.blindPuzzles.squareColorQueue) && state.blindPuzzles.squareColorQueue.length) {
+    const next = state.blindPuzzles.squareColorQueue.shift();
+    if (isBoardSquare(next)) {
+      return next;
+    }
+  }
   const used = state.blindPuzzles.roundUsedSquares;
   const candidates = ALL_BOARD_SQUARES.filter((sq) => !used.has(sq));
   if (!candidates.length) {
@@ -5618,6 +5671,7 @@ function startSquareColors() {
   state.blindPuzzles.mode = 'square-colors';
   state.blindPuzzles.running = true;
   state.blindPuzzles.total = Math.min(64, state.blindQuestionCount);
+  state.blindPuzzles.squareColorQueue = buildSquareColorRoundQueue(state.blindPuzzles.total);
   updateAll();
   startBlindPuzzleTimer();
   askNextSquareColorQuestion();
