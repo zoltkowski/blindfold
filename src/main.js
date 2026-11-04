@@ -7341,8 +7341,7 @@ function updateStatus() {
         elements.statusText.textContent = `Follow browse finished (${totalMoves} moves).`;
         return;
       }
-      const turn = state.game.turn() === 'w' ? 'White' : 'Black';
-      elements.statusText.textContent = `${turn} to move - ${shownMoves}/${totalMoves} moves shown`;
+      elements.statusText.textContent = `${totalMoves} moves`;
       return;
     }
     if (shownPlies >= current.moveSans.length) {
