@@ -16,7 +16,12 @@ app.innerHTML = `
         </div>
       <div class="board-actions">
         <div class="board-actions-left">
-          <button id="rotateBoardBtn" class="icon-rotate-btn" type="button" aria-label="Rotate board" title="Rotate board">↻</button>
+          <button id="rotateBoardBtn" class="icon-rotate-btn" type="button" data-orientation="white" aria-label="Rotate board (White at bottom)" title="Rotate board (White at bottom)">
+            <svg viewBox="0 0 22 18" width="23" height="19" aria-hidden="true">
+              <path class="board-orientation-pawn" d="M7 2a2.5 2.5 0 0 1 1.4 4.6l.8 4.1 2.3 2.3v2H2.5v-2l2.3-2.3.8-4.1A2.5 2.5 0 0 1 7 2Z"/>
+              <path d="M17 14V5m-3 3 3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <button id="openConfigBtn" class="icon-config-btn" type="button" aria-label="Open configuration">⚙</button>
         </div>
         <div class="board-actions-main">
@@ -2288,6 +2293,10 @@ function updateBoard() {
 
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
   const boardOrientation = state.boardOrientation;
+  const rotateLabel = boardOrientation === 'white' ? 'Rotate board (White at bottom)' : 'Rotate board (Black at bottom)';
+  elements.rotateBoardBtn.dataset.orientation = boardOrientation;
+  elements.rotateBoardBtn.title = rotateLabel;
+  elements.rotateBoardBtn.setAttribute('aria-label', rotateLabel);
   const positionRecallAnswerMode = canEditPositionRecall();
   const movableColor = (state.sessionMode === 'puzzle' || followMode)
     ? undefined

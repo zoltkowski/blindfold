@@ -909,6 +909,17 @@ body.puzzle-mode .moves-wrap {
   width: 2rem;
 }
 
+.board-orientation-pawn {
+  fill: #fff;
+  stroke: #444;
+  stroke-linejoin: round;
+}
+
+.icon-rotate-btn[data-orientation='black'] .board-orientation-pawn {
+  fill: #222;
+  stroke: #888;
+}
+
 .icon-eye-btn.is-on {
   background: #1f7a34;
   border-color: #1f7a34;
