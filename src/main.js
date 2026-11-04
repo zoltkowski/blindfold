@@ -3583,7 +3583,7 @@ async function loadLichessPuzzle() {
 
     state.game = setGameFromVerboseMoves(verbose, contextStartPly) ?? new Chess(baseGame.fen());
     updateAll();
-    if (contextSans.length && elements.speakComputer.checked && typeof speechSynthesis !== 'undefined') {
+    if (contextSans.length) {
       handleReviewPlay();
     }
   } catch (error) {
@@ -6574,7 +6574,11 @@ function applyPlayerMove(text) {
   if (state.sessionMode === 'puzzle') {
     markPuzzleSolvedIfFinished();
     autoPlayPuzzleOpponentMovesIfEnabled();
-    restorePuzzleView();
+    if (isMoveSpeechEnabled()) {
+      restorePuzzleView();
+    } else {
+      syncPuzzleToProgress();
+    }
     updateAll();
     if (!state.puzzle?.solved) {
       elements.statusText.textContent = 'Correct.';
@@ -6917,8 +6921,12 @@ async function pickEngineMove(game, mode) {
   return findLegalMoveByUci(result.uci, game);
 }
 
+function isMoveSpeechEnabled() {
+  return elements.speakComputer.checked && typeof speechSynthesis !== 'undefined';
+}
+
 function speakMoveIfEnabled(moveSan) {
-  if (!elements.speakComputer.checked || typeof speechSynthesis === 'undefined') {
+  if (!isMoveSpeechEnabled()) {
     return;
   }
 
@@ -7078,11 +7086,13 @@ function gameDrillIntroFinished() {
 function hideSpokenPlaybackMove() {
   const playing = (state.sessionMode === 'puzzle' && reviewPlaybackActive)
     || (isGameDrillModeActive() && state.blindPuzzles.gameDrillReplayState === 'playing');
-  return playing && elements.speakComputer.checked && typeof speechSynthesis !== 'undefined' && !state.showSpokenMoves;
+  return playing && isMoveSpeechEnabled() && !state.showSpokenMoves;
 }
 
 function updateLastMove() {
-  if ((state.sessionMode === 'puzzle' && !reviewPlaybackActive) || gameDrillIntroFinished() || hideSpokenPlaybackMove()) {
+  if (isMoveSpeechEnabled() && (
+    (state.sessionMode === 'puzzle' && !reviewPlaybackActive) || gameDrillIntroFinished() || hideSpokenPlaybackMove()
+  )) {
     elements.lastMoveText.textContent = '';
     return;
   }
@@ -7187,7 +7197,7 @@ function updateStatus() {
       elements.statusText.textContent = 'Playing moves…';
       return;
     }
-    if (gameDrillIntroFinished()) {
+    if (isMoveSpeechEnabled() && gameDrillIntroFinished()) {
       elements.statusText.textContent = turn + ' to move';
       return;
     }
@@ -7351,7 +7361,7 @@ function updateMainControlsVisibility() {
     && (forceShowLastMoveInGame || state.showLastMove)
     && hasLastMoveText;
   const showLastMoveRowInBlind = blindHasPlayedMoves && hasLastMoveText;
-  const showLastMoveRowInPuzzle = inPuzzle && reviewPlaybackActive && hasLastMoveText;
+  const showLastMoveRowInPuzzle = inPuzzle && hasLastMoveText;
   elements.lastMoveRow.hidden = hideBelowSlider || !(showLastMoveRowInGame || showLastMoveRowInBlind || showLastMoveRowInPuzzle);
   const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
   document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
@@ -7361,7 +7371,7 @@ function updateMainControlsVisibility() {
     && (
       (state.sessionMode === 'game' && state.gameStarted && hasLastMoveText)
       || (blindStructuredLastMove && hasLastMoveText)
-      || showLastMoveRowInPuzzle
+      || (showLastMoveRowInPuzzle && !state.puzzle?.solved)
     );
   elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
   document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
