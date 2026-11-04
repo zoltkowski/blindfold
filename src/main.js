@@ -137,7 +137,7 @@ app.innerHTML = `
               <input id="ttsMovePause" type="range" min="0" max="5000" step="250" value="250" />
             </label>
             <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
-            <button id="ttsTestVoicesBtn" type="button">Test Available Voices</button>
+            <button id="ttsTestVoicesBtn" type="button">Retest Voices</button>
             <div id="ttsTestStatus" class="muted" role="status"></div>
             <label>
               Puzzle Difficulty
@@ -1829,9 +1829,21 @@ function normalizeTtsText(text) {
 }
 
 let ttsVoiceTest = null;
+let ttsVoiceTestReady = false;
+let ttsVoiceTestWaitingForInteraction = false;
+let ttsLastTestedInventory = '';
+
+function stopTtsVoiceTest() {
+  if (!ttsVoiceTest) return;
+  ttsVoiceTest.abort();
+  ttsVoiceTest = null;
+  elements.ttsTestVoicesBtn.disabled = false;
+  ttsVoiceTestWaitingForInteraction = true;
+  speechSynthesis.cancel();
+}
 
 function cancelTtsPlayback() {
-  ttsVoiceTest?.abort();
+  stopTtsVoiceTest();
   state.ttsSequenceToken += 1;
   if (typeof speechSynthesis !== 'undefined') {
     speechSynthesis.cancel();
@@ -1904,6 +1916,7 @@ function speakTtsSequence(texts, lang, { onFinish = null } = {}) {
 }
 
 function applyTtsOptions(utterance, lang) {
+  stopTtsVoiceTest();
   utterance.text = normalizeTtsText(utterance.text);
   utterance.lang = lang;
   utterance.rate = Math.max(0.1, Math.min(1.5, Number(state.ttsRate) || 1));
@@ -1937,7 +1950,7 @@ function populateTtsVoices() {
   select.replaceChildren();
   select.disabled = !options.length;
   if (!options.length) {
-    select.add(new Option(verified?.length === 0 ? 'No voices passed' : 'Test available voices first', ''));
+    select.add(new Option(verified?.length === 0 ? 'No voices passed' : 'Checking available voices…', ''));
     if (verified?.length === 0) state.ttsVoiceUri = '';
     return;
   }
@@ -1954,6 +1967,7 @@ function populateTtsVoices() {
 function probeTtsVoice(voice, lang, signal) {
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(lang === 'pl' ? 'Test głosu' : 'Voice test');
+    utterance.volume = 0;
     utterance.lang = voice?.lang ?? (lang === 'pl' ? 'pl-PL' : 'en-US');
     if (voice) utterance.voice = voice;
     const finish = (success) => {
@@ -1963,50 +1977,56 @@ function probeTtsVoice(voice, lang, signal) {
       utterance.onerror = null;
       resolve(success);
     };
-    const abort = () => finish(false);
+    const abort = () => finish('canceled');
     const timeout = window.setTimeout(() => {
-      finish(false);
+      finish('timeout');
       speechSynthesis.cancel();
     }, 5000);
     signal.addEventListener('abort', abort, { once: true });
-    utterance.onend = () => finish(true);
-    utterance.onerror = abort;
+    utterance.onend = () => finish('ok');
+    utterance.onerror = (event) => finish(event.error);
     try {
       speechSynthesis.speak(utterance);
     } catch (_error) {
-      finish(false);
+      finish('synthesis-failed');
     }
   });
 }
 
-async function testTtsVoices() {
+async function testTtsVoices({ force = false } = {}) {
   if (typeof speechSynthesis === 'undefined') {
     elements.ttsTestStatus.textContent = 'TTS is unavailable in this browser.';
     return;
   }
-  cancelTtsPlayback();
+  if (!ttsVoiceTestReady || ttsVoiceTest || state.speaking || speechSynthesis.speaking || speechSynthesis.pending) return;
+  if (!force && ttsVoiceTestWaitingForInteraction && navigator.userActivation?.hasBeenActive === false) return;
+  const lang = state.moveLanguage;
+  const voices = ttsVoicesForLanguage(lang);
+  if (!force && !getAvailableTtsVoices().length) return;
+  const inventory = JSON.stringify([lang, voices.map((voice) => voice.voiceURI)]);
+  if (!force && inventory === ttsLastTestedInventory) return;
   const test = new AbortController();
   ttsVoiceTest = test;
-  const lang = state.moveLanguage;
-  const candidates = [null, ...ttsVoicesForLanguage(lang)];
+  ttsVoiceTestWaitingForInteraction = false;
+  const candidates = [null, ...voices];
   const verified = [];
   elements.ttsTestVoicesBtn.disabled = true;
-  state.speaking = true;
-  refreshVoiceListeningState();
   for (const voice of candidates) {
-    elements.ttsTestStatus.textContent = 'Testing ' + (voice?.name ?? 'System default') + '…';
-    const success = await probeTtsVoice(voice, lang, test.signal);
-    if (test.signal.aborted) break;
-    if (success) verified.push(voice?.voiceURI ?? '');
+    elements.ttsTestStatus.textContent = 'Checking ' + (voice?.name ?? 'System default') + '…';
+    const result = await probeTtsVoice(voice, lang, test.signal);
+    if (test.signal.aborted) return;
+    if (result === 'not-allowed') {
+      ttsVoiceTest = null;
+      elements.ttsTestVoicesBtn.disabled = false;
+      ttsVoiceTestWaitingForInteraction = true;
+      elements.ttsTestStatus.textContent = 'Voice checking will continue after you interact with the page.';
+      return;
+    }
+    if (result === 'ok') verified.push(voice?.voiceURI ?? '');
   }
   ttsVoiceTest = null;
+  ttsLastTestedInventory = inventory;
   elements.ttsTestVoicesBtn.disabled = false;
-  if (test.signal.aborted) {
-    elements.ttsTestStatus.textContent = 'Voice test canceled.';
-    return;
-  }
-  state.speaking = false;
-  refreshVoiceListeningState();
   const results = readLocalJson(TTS_VERIFIED_VOICES_KEY) ?? {};
   writeLocalJson(TTS_VERIFIED_VOICES_KEY, { ...results, [lang]: verified });
   populateTtsVoices();
@@ -2014,6 +2034,13 @@ async function testTtsVoices() {
   elements.ttsTestStatus.textContent = verified.length
     ? verified.length + ' of ' + candidates.length + ' voices passed.'
     : 'No voices passed the test.';
+  void testTtsVoices();
+}
+
+function refreshTtsVoices() {
+  if (!ttsVoiceTestReady) return;
+  populateTtsVoices();
+  void testTtsVoices();
 }
 
 function stopStockfishWorker() {
@@ -7950,11 +7977,11 @@ elements.boardReveal.addEventListener('input', () => {
 });
 
 elements.moveLanguage.addEventListener('change', () => {
-  if (ttsVoiceTest) cancelTtsPlayback();
+  stopTtsVoiceTest();
   state.moveLanguage = elements.moveLanguage.value;
   updateMoveInputPlaceholder();
   syncMoveAssistPieces();
-  populateTtsVoices();
+  refreshTtsVoices();
   writeSettings();
   updateMovesList();
   updateLastMove();
@@ -8035,7 +8062,12 @@ elements.ttsMovePause.addEventListener('input', () => {
   writeSettings();
 });
 
-elements.ttsTestVoicesBtn.addEventListener('click', testTtsVoices);
+elements.ttsTestVoicesBtn.addEventListener('click', () => {
+  void testTtsVoices({ force: true });
+});
+document.addEventListener('click', () => {
+  if (ttsVoiceTestWaitingForInteraction) void testTtsVoices();
+});
 elements.ttsSampleBtn.addEventListener('click', () => {
   playTtsSample();
 });
@@ -8603,9 +8635,9 @@ window.addEventListener('pointerdown', (event) => {
 
 if (typeof speechSynthesis !== 'undefined') {
   if (typeof speechSynthesis.addEventListener === 'function') {
-    speechSynthesis.addEventListener('voiceschanged', populateTtsVoices);
+    speechSynthesis.addEventListener('voiceschanged', refreshTtsVoices);
   } else {
-    speechSynthesis.onvoiceschanged = populateTtsVoices;
+    speechSynthesis.onvoiceschanged = refreshTtsVoices;
   }
 }
 
@@ -8641,9 +8673,10 @@ async function bootstrapApp() {
   state.squareColorStats = readSquareColorStats();
   state.squareColorRecords = readSquareColorRecords();
   loadSettingsIntoState();
-  populateTtsVoices();
   syncEngineControlUi();
   applySettingsToUi();
+  ttsVoiceTestReady = true;
+  refreshTtsVoices();
   updateMoveInputPlaceholder();
   syncMoveAssistPieces();
   updateVoiceUi();
