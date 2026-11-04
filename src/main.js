@@ -235,7 +235,6 @@ app.innerHTML = `
         <div id="followGameMeta" class="follow-meta">-</div>
         <div id="followGameMoves" class="follow-moves">-</div>
         <div id="followBrowseActions" class="follow-browse-actions">
-          <button id="followPlayBtn" type="button">Play</button>
         </div>
       </div>
 
@@ -325,7 +324,6 @@ app.innerHTML = `
         <button id="blindStopBtn" type="button" hidden>Stop</button>
       </div>
       <div id="lastMoveRow" class="last-move-row">
-        <button id="gameDrillPauseBtn" type="button" hidden>Pause</button>
         <span id="lastMoveText" class="last-move-text"></span>
       </div>
 
@@ -352,6 +350,7 @@ app.innerHTML = `
               <path d="M15 6 L9 12 L15 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
             </svg>
           </button>
+          <button id="reviewPlayBtn" type="button">Play</button>
           <button id="reviewNextBtn" type="button" aria-label="Next move" title="Next move">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
               <path d="M9 6 L15 12 L9 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -440,7 +439,6 @@ const elements = {
   followGameMeta: document.getElementById('followGameMeta'),
   followGameMoves: document.getElementById('followGameMoves'),
   followBrowseActions: document.getElementById('followBrowseActions'),
-  followPlayBtn: document.getElementById('followPlayBtn'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
   blindPuzzlesBtn: document.getElementById('blindPuzzlesBtn'),
   openPuzzleLinkBtn: document.getElementById('openPuzzleLinkBtn'),
@@ -483,12 +481,12 @@ const elements = {
   squareColorBlackBtn: document.getElementById('squareColorBlackBtn'),
   blindStopBtn: document.getElementById('blindStopBtn'),
   lastMoveRow: document.getElementById('lastMoveRow'),
-  gameDrillPauseBtn: document.getElementById('gameDrillPauseBtn'),
   lastMoveText: document.getElementById('lastMoveText'),
   toggleMovesBtn: document.getElementById('toggleMovesBtn'),
   reviewNav: document.getElementById('reviewNav'),
   reviewPrevBtn: document.getElementById('reviewPrevBtn'),
   reviewNextBtn: document.getElementById('reviewNextBtn'),
+  reviewPlayBtn: document.getElementById('reviewPlayBtn'),
   movesPanel: document.getElementById('movesPanel'),
   movesWrap: document.getElementById('movesWrap'),
   movesBody: document.getElementById('movesBody'),
@@ -3247,8 +3245,6 @@ function updateFollowPanel() {
     elements.followQuizStartRow.hidden = true;
     elements.followBrowseActions.hidden = false;
     elements.followRestartBtn.disabled = true;
-    elements.followPlayBtn.disabled = true;
-    elements.followPlayBtn.textContent = 'Play';
     return;
   }
 
@@ -3265,18 +3261,14 @@ function updateFollowPanel() {
 
   const current = state.followGame.current;
   const hasLoadedGame = !!current;
-  const browsing = state.followGame.mode === 'browse';
   elements.followGamePickerRow.hidden = hasLoadedGame;
   elements.followGamePickerActions.hidden = hasLoadedGame;
   elements.followBrowseActions.hidden = !hasLoadedGame;
-  elements.followPlayBtn.hidden = !browsing;
   if (!current) {
     elements.followGameTitle.textContent = 'No follow game selected.';
     elements.followGameMeta.textContent = '-';
     elements.followGameMoves.textContent = '-';
     elements.followRestartBtn.disabled = true;
-    elements.followPlayBtn.disabled = true;
-    elements.followPlayBtn.textContent = state.followGame.browseAutoPlay ? 'Pause' : 'Play';
     return;
   }
   elements.followRestartBtn.disabled = false;
@@ -3318,10 +3310,6 @@ function updateFollowPanel() {
     );
   }
 
-  const finished = shownPlies >= totalPlies;
-  const playing = state.followGame.browseAutoPlay;
-  elements.followPlayBtn.disabled = !browsing || !totalPlies;
-  elements.followPlayBtn.textContent = playing ? 'Pause' : (finished ? 'Replay' : 'Play');
 }
 
 function setGameFromVerboseMoves(verboseMoves, plyCount) {
@@ -3707,6 +3695,7 @@ function clearPositionRecallTimers() {
 }
 
 function resetBlindPuzzleSession() {
+  stopReviewPlayback();
   stopFollowBrowsePlayback();
   if (state.speaking) {
     cancelTtsPlayback();
@@ -5509,7 +5498,7 @@ function toggleFollowBrowsePlay() {
     return;
   }
   state.followGame.browseAutoPlay = true;
-  updateFollowPanel();
+  updateReviewControls();
   advanceFollowGameMove();
 }
 
@@ -5667,7 +5656,7 @@ function advanceGameDrillReplay() {
   const viewed = state.reviewPly ?? moves.length;
   if (viewed >= moves.length) {
     state.blindPuzzles.gameDrillReplayState = 'idle';
-    updateMainControlsVisibility();
+    updateReviewControls();
     return;
   }
   const next = viewed + 1;
@@ -5719,7 +5708,7 @@ function handleGameDrillReplayButton() {
     if (selected === null) return;
     clearGameDrillReplayTimer();
     state.blindPuzzles.gameDrillReplayState = 'paused';
-    updateMainControlsVisibility();
+    updateReviewControls();
     return;
   }
   const fromPly = selected !== null && selected <= total
@@ -5895,6 +5884,7 @@ function showPuzzleSolution() {
     return;
   }
 
+  stopReviewPlayback();
   state.puzzle.revealSolutionText = true;
   state.puzzleLastAttempt = null;
   state.puzzle.solutionIndex = state.puzzle.lineMoves.length;
@@ -5913,8 +5903,12 @@ function puzzleStepBack() {
   updateAll();
 }
 
+function puzzleReviewEndPly() {
+  return Math.max(puzzleProgressAbsPly(), state.puzzle?.startPly ?? 0);
+}
+
 function puzzleStepForward() {
-  const progressAbsPly = puzzleProgressAbsPly();
+  const progressAbsPly = puzzleReviewEndPly();
   if (!state.puzzle || state.puzzleAutoPlaying || state.puzzleViewIndex >= progressAbsPly) {
     return;
   }
@@ -6000,7 +5994,7 @@ function reviewJumpFirst() {
     if (!state.puzzle || state.puzzleAutoPlaying) {
       return;
     }
-    const progressAbsPly = puzzleProgressAbsPly();
+    const progressAbsPly = puzzleReviewEndPly();
     state.puzzleViewIndex = progressAbsPly > 0 ? 1 : 0;
     if (!syncPuzzleGameToView()) {
       elements.statusText.textContent = 'Cannot navigate puzzle move list.';
@@ -6036,7 +6030,7 @@ function reviewJumpLast() {
     if (!state.puzzle || state.puzzleAutoPlaying) {
       return;
     }
-    state.puzzleViewIndex = puzzleProgressAbsPly();
+    state.puzzleViewIndex = puzzleReviewEndPly();
     if (!syncPuzzleGameToView()) {
       elements.statusText.textContent = 'Cannot navigate puzzle move list.';
       return;
@@ -6113,6 +6107,7 @@ function installLongPressAction(button, onClick, onLongPress) {
 }
 
 function jumpToMovePly(absPly) {
+  stopReviewPlayback();
   if (!Number.isInteger(absPly) || absPly < 0) {
     return;
   }
@@ -6124,7 +6119,7 @@ function jumpToMovePly(absPly) {
     if (!state.puzzle || state.puzzleAutoPlaying) {
       return;
     }
-    const progressAbsPly = puzzleProgressAbsPly();
+    const progressAbsPly = puzzleReviewEndPly();
     const bounded = Math.max(0, Math.min(progressAbsPly, absPly + 1));
     state.puzzleViewIndex = bounded;
     if (!syncPuzzleGameToView()) {
@@ -6155,49 +6150,128 @@ function jumpToMovePly(absPly) {
   updateAll();
 }
 
+let reviewPlaybackActive = false;
+let reviewPlaybackTimerId = null;
+
+function stopReviewPlayback() {
+  if (!reviewPlaybackActive) return;
+  reviewPlaybackActive = false;
+  window.clearTimeout(reviewPlaybackTimerId);
+  reviewPlaybackTimerId = null;
+  if (state.speaking) cancelTtsPlayback();
+  updateReviewControls();
+}
+
+function reviewPlaybackPosition() {
+  if (state.sessionMode === 'puzzle') {
+    const puzzle = state.puzzle;
+    const viewed = state.puzzleViewIndex;
+    const total = puzzleReviewEndPly();
+    const move = puzzle && (viewed < puzzle.contextStartPly
+      ? puzzle.verboseMoves[viewed]
+      : puzzle.lineMoves[viewed - puzzle.contextStartPly]);
+    return { viewed, total, san: viewed < total ? move?.san : null };
+  }
+  const history = state.game.history();
+  const viewed = state.reviewPly ?? history.length;
+  return { viewed, total: history.length, san: history[viewed] };
+}
+
+function advanceReviewPlayback() {
+  if (!reviewPlaybackActive) return;
+  if (state.speaking) {
+    reviewPlaybackTimerId = window.setTimeout(advanceReviewPlayback, 100);
+    return;
+  }
+  const { viewed, total, san } = reviewPlaybackPosition();
+  if (!san || (state.sessionMode === 'puzzle' && state.puzzleAutoPlaying)) {
+    stopReviewPlayback();
+    updateReviewControls();
+    return;
+  }
+  reviewStepForward();
+  if (reviewPlaybackPosition().viewed === viewed) {
+    stopReviewPlayback();
+    updateReviewControls();
+    return;
+  }
+  speakMoveIfEnabled(san);
+  const pause = viewed + 1 < total ? replayMovePauseMs() : 0;
+  const speechDelay = state.speaking ? 100 : estimateMoveSpeechMs(san);
+  reviewPlaybackTimerId = window.setTimeout(advanceReviewPlayback, Math.max(pause, speechDelay));
+}
+
+function handleReviewPlay() {
+  if (state.sessionMode === 'follow-game') {
+    toggleFollowBrowsePlay();
+    return;
+  }
+  if (isGameDrillModeActive()) {
+    handleGameDrillReplayButton();
+    return;
+  }
+  if (reviewPlaybackActive) {
+    stopReviewPlayback();
+    updateReviewControls();
+    return;
+  }
+  const { viewed, total } = reviewPlaybackPosition();
+  if (!total) return;
+  if (viewed >= total) {
+    if (state.sessionMode === 'puzzle') {
+      state.puzzleViewIndex = 0;
+      if (!syncPuzzleGameToView()) return;
+    } else {
+      state.reviewPly = 0;
+    }
+  }
+  reviewPlaybackActive = true;
+  updateReviewControls();
+  advanceReviewPlayback();
+}
+
 function updateReviewControls() {
+  const { reviewNav, reviewPrevBtn, reviewNextBtn, reviewPlayBtn, toggleMovesBtn, movesPanel } = elements;
   const inFollow = state.sessionMode === 'follow-game';
-  elements.reviewNav.hidden = inFollow;
+  reviewNav.hidden = inFollow;
   if (inFollow) {
     const actions = elements.followBrowseActions;
-    if (elements.reviewNextBtn.parentElement !== actions) {
-      actions.prepend(elements.reviewPrevBtn);
-      actions.append(elements.reviewNextBtn, elements.toggleMovesBtn);
+    if (reviewPlayBtn.parentElement !== actions) {
+      actions.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn, toggleMovesBtn);
     }
     const browsing = state.followGame.mode === 'browse' && !!state.followGame.current;
-    elements.reviewPrevBtn.hidden = !browsing;
-    elements.reviewPrevBtn.disabled = !browsing || state.followGame.shownPlies <= 0;
-    elements.reviewNextBtn.hidden = !browsing;
-    elements.reviewNextBtn.disabled = !browsing || state.followGame.browseAutoPlay
-      || state.followGame.shownPlies >= followGameTotalPlies();
+    const viewed = state.followGame.shownPlies;
+    const total = followGameTotalPlies();
+    const playing = state.followGame.browseAutoPlay;
+    reviewPrevBtn.disabled = !browsing || viewed <= 0;
+    reviewNextBtn.disabled = !browsing || playing || viewed >= total;
+    reviewPlayBtn.disabled = !browsing || !total;
+    reviewPlayBtn.textContent = playing ? 'Pause' : (total && viewed >= total ? 'Replay' : 'Play');
     return;
   }
-  if (elements.reviewNextBtn.parentElement !== elements.reviewNav) {
-    elements.reviewNav.append(elements.reviewPrevBtn, elements.reviewNextBtn);
-    elements.movesPanel.prepend(elements.toggleMovesBtn);
+  if (reviewPlayBtn.parentElement !== reviewNav) {
+    reviewNav.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn);
+    movesPanel.prepend(toggleMovesBtn);
   }
-  elements.reviewPrevBtn.hidden = false;
-  elements.reviewNextBtn.hidden = false;
-  if (state.sessionMode === 'puzzle') {
-    const progressAbsPly = puzzleProgressAbsPly();
-    const canPrev = !!state.puzzle && !state.puzzleAutoPlaying && state.puzzleViewIndex > 0;
-    const canNext = !!state.puzzle && !state.puzzleAutoPlaying && state.puzzleViewIndex < progressAbsPly;
-    elements.reviewPrevBtn.disabled = !canPrev;
-    elements.reviewNextBtn.disabled = !canNext;
-    return;
-  }
-  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
+  if (isGameDrillModeActive()) {
     const total = gameDrillTotalPlies();
     const viewed = state.reviewPly ?? total;
-    elements.reviewPrevBtn.disabled = viewed <= 0;
-    elements.reviewNextBtn.disabled = viewed >= total;
+    const prefixTotal = gameDrillPrefixMoves().length;
+    const playing = state.blindPuzzles.gameDrillReplayState === 'playing';
+    const fromSelection = state.reviewPly !== null && viewed <= prefixTotal;
+    reviewPrevBtn.disabled = viewed <= 0;
+    reviewNextBtn.disabled = viewed >= total;
+    reviewPlayBtn.disabled = !prefixTotal || (playing && viewed >= prefixTotal);
+    reviewPlayBtn.textContent = playing ? 'Pause' : (fromSelection ? 'Play' : 'Replay');
     return;
   }
 
-  const total = state.game.history({ verbose: true }).length;
-  const viewed = state.reviewPly ?? total;
-  elements.reviewPrevBtn.disabled = viewed <= 0;
-  elements.reviewNextBtn.disabled = viewed >= total;
+  const { viewed, total } = reviewPlaybackPosition();
+  const solutionPlaying = state.sessionMode === 'puzzle' && state.puzzleAutoPlaying;
+  reviewPrevBtn.disabled = solutionPlaying || viewed <= 0;
+  reviewNextBtn.disabled = solutionPlaying || viewed >= total;
+  reviewPlayBtn.disabled = solutionPlaying || !total;
+  reviewPlayBtn.textContent = reviewPlaybackActive ? 'Pause' : (total && viewed >= total ? 'Replay' : 'Play');
 }
 
 function uciFromMove(mv) {
@@ -6420,6 +6494,7 @@ function setPuzzleLastAttempt(text) {
 }
 
 function applyPlayerMove(text) {
+  stopReviewPlayback();
   if (state.sessionMode === 'game' && !state.gameStarted) {
     elements.statusText.textContent = 'Press New Game to start.';
     return false;
@@ -7258,7 +7333,6 @@ function updateMainControlsVisibility() {
   const hasLastMoveText = !!(elements.lastMoveText.textContent ?? '').trim();
   const gameDrillTotal = inGameDrill ? gameDrillTotalPlies() : 0;
   const gameDrillViewed = inGameDrill ? (state.reviewPly ?? gameDrillTotal) : 0;
-  const gameDrillPrefixTotal = inGameDrill ? gameDrillPrefixMoves().length : 0;
   const blindHasPlayedMoves = blindStructuredLastMove
     && (inGameDrill
       ? gameDrillViewed > 0
@@ -7274,16 +7348,9 @@ function updateMainControlsVisibility() {
     && (forceShowLastMoveInGame || state.showLastMove)
     && hasLastMoveText;
   const showLastMoveRowInBlind = blindHasPlayedMoves && hasLastMoveText;
-  const showGameDrillReplay = inGameDrill && gameDrillPrefixTotal > 0;
-  const showLastMoveRow = showLastMoveRowInGame || showLastMoveRowInBlind || showGameDrillReplay;
+  const showLastMoveRow = showLastMoveRowInGame || showLastMoveRowInBlind;
   const canShowLastMoveRow = state.sessionMode === 'game' || blindStructuredLastMove;
   elements.lastMoveRow.hidden = !canShowLastMoveRow || hideBelowSlider || !showLastMoveRow;
-  const replayPlaying = state.blindPuzzles.gameDrillReplayState === 'playing';
-  const replayAtEnd = gameDrillViewed >= gameDrillPrefixTotal;
-  const replayFromSelection = state.reviewPly !== null && gameDrillViewed <= gameDrillPrefixTotal;
-  elements.gameDrillPauseBtn.hidden = !showGameDrillReplay;
-  elements.gameDrillPauseBtn.disabled = !showGameDrillReplay || (replayPlaying && replayAtEnd);
-  elements.gameDrillPauseBtn.textContent = replayPlaying ? 'Pause' : (replayFromSelection ? 'Play' : 'Replay');
   const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
   document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
   const newGamePending = state.sessionMode === 'game' && !state.gameStarted && !hideBelowSlider;
@@ -8154,6 +8221,7 @@ elements.toggleMovesBtn.addEventListener('click', () => {
 });
 
 elements.revealBtn.addEventListener('click', () => {
+  stopReviewPlayback();
   if (isPositionRecallMode()) {
     if (state.blindPuzzles.running) return;
     state.revealPosition = !state.revealPosition;
@@ -8332,13 +8400,22 @@ elements.positionRecallClearBtn.addEventListener('click', () => {
 elements.positionRecallCheckBtn.addEventListener('click', () => {
   checkPositionRecallPlacement();
 });
-elements.gameDrillPauseBtn.addEventListener('click', handleGameDrillReplayButton);
-elements.followPlayBtn.addEventListener('click', () => {
-  toggleFollowBrowsePlay();
-});
+elements.reviewPlayBtn.addEventListener('click', handleReviewPlay);
 elements.showSolutionBtn.addEventListener('click', showPuzzleSolution);
-installLongPressAction(elements.reviewPrevBtn, reviewStepBack, reviewJumpFirst);
-installLongPressAction(elements.reviewNextBtn, reviewStepForward, reviewJumpLast);
+installLongPressAction(elements.reviewPrevBtn, () => {
+  stopReviewPlayback();
+  reviewStepBack();
+}, () => {
+  stopReviewPlayback();
+  reviewJumpFirst();
+});
+installLongPressAction(elements.reviewNextBtn, () => {
+  stopReviewPlayback();
+  reviewStepForward();
+}, () => {
+  stopReviewPlayback();
+  reviewJumpLast();
+});
 elements.movesBody.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {

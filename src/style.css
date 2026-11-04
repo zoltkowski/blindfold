@@ -338,7 +338,7 @@ button:hover {
   gap: 0.35rem;
 }
 
-.follow-browse-actions > #followPlayBtn {
+.follow-browse-actions > #reviewPlayBtn {
   min-width: 7rem;
 }
 
@@ -768,13 +768,6 @@ body.blind-structured-mode #statusText {
   min-height: 1.9rem;
   display: flex;
   align-items: center;
-}
-
-#gameDrillPauseBtn {
-  margin-right: 0.55rem;
-  min-height: 1.7rem;
-  padding: 0.18rem 0.55rem;
-  font-size: 0.74rem;
 }
 
 .last-move-text {
