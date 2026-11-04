@@ -2268,6 +2268,9 @@ function isBoardRevealActive() {
 
 function boardGameForDisplayedPieces(boardGame) {
   if (state.sessionMode === 'puzzle' && state.puzzle) {
+    if (puzzleSolutionRevealed()) {
+      return boardGame;
+    }
     const { baseFen, startFen } = state.puzzle;
     return new Chess(state.revealPosition ? startFen : baseFen);
   }
@@ -3629,9 +3632,12 @@ async function loadLichessPuzzle() {
     const query = new URLSearchParams();
     query.set('difficulty', state.puzzleDifficulty);
     const token = lichessTokenValid ? lichessToken : '';
-    const response = await fetch(`https://lichess.org/api/puzzle/next?${query.toString()}`, {
+    const previousSolvedId = state.puzzle?.solved ? state.puzzle.id : null;
+    const fetchNext = () => fetch(`https://lichess.org/api/puzzle/next?${query.toString()}`, {
+      cache: 'no-store',
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
+    let response = await fetchNext();
     if (token && (response.status === 401 || response.status === 403) && token === lichessToken) {
       lichessTokenValid = false;
       storeLichessToken();
@@ -3641,7 +3647,17 @@ async function loadLichessPuzzle() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    const payload = await response.json();
+    let payload = await response.json();
+    if (previousSolvedId && payload?.puzzle?.id === previousSolvedId) {
+      response = await fetchNext();
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      payload = await response.json();
+      if (payload?.puzzle?.id === previousSolvedId) {
+        throw new Error('Lichess returned the same puzzle');
+      }
+    }
     const pgn = payload?.game?.pgn;
     const puzzle = payload?.puzzle;
     if (!pgn || !puzzle?.solution?.length || typeof puzzle.initialPly !== 'number') {
@@ -3733,6 +3749,10 @@ async function loadLichessPuzzle() {
     }
     if (msg === 'HTTP 429') {
       elements.statusText.textContent = 'Lichess busy, wait 1 minute';
+      return;
+    }
+    if (msg === 'Lichess returned the same puzzle') {
+      elements.statusText.textContent = 'Lichess returned the same puzzle. Try again later.';
       return;
     }
     elements.statusText.textContent = 'Unable to get puzzle from Lichess.';
