@@ -6113,15 +6113,17 @@ function reviewStepForward() {
 
 function reviewJumpFirst() {
   if (state.sessionMode === 'follow-game') {
+    if (state.followGame.mode === 'browse' && state.followGame.current) {
+      stopFollowBrowsePlayback({ cancelSpeech: true });
+      if (setFollowGamePly(0)) updateAll();
+    }
     return;
   }
   if (state.sessionMode === 'puzzle') {
     if (!state.puzzle || state.puzzleAutoPlaying) {
       return;
     }
-    const startPly = puzzleReviewStartPly();
-    const progressAbsPly = puzzleReviewEndPly();
-    state.puzzleViewIndex = progressAbsPly > startPly ? startPly + 1 : startPly;
+    state.puzzleViewIndex = puzzleReviewStartPly();
     if (!syncPuzzleGameToView()) {
       elements.statusText.textContent = 'Cannot navigate puzzle move list.';
       return;
@@ -6135,7 +6137,7 @@ function reviewJumpFirst() {
     if (total === 0) {
       return;
     }
-    state.reviewPly = 1;
+    state.reviewPly = 0;
     updateAll();
     return;
   }
@@ -6144,7 +6146,7 @@ function reviewJumpFirst() {
   if (total === 0) {
     return;
   }
-  state.reviewPly = 1;
+  state.reviewPly = 0;
   updateAll();
 }
 
