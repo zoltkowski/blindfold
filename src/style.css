@@ -19,7 +19,7 @@ body {
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -38,6 +38,9 @@ select,
 .layout {
   display: grid;
   grid-template-columns: minmax(320px, 620px) minmax(320px, 460px);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
   gap: 1rem;
   padding: 1rem;
 }
@@ -60,7 +63,7 @@ select,
 }
 
 .board-shell {
-  width: min(75vw, 560px);
+  width: min(75vw, 560px, max(120px, calc(100dvh - 7rem)));
   max-width: 100%;
   margin: 0 auto;
   position: relative;
@@ -280,7 +283,6 @@ button:hover {
 
 #puzzleContext {
   display: block;
-  min-height: calc(1.35em * 3);
 }
 
 .puzzle-panel[hidden] {
@@ -824,14 +826,11 @@ body.status-replaced-by-lastmove #lastMoveRow {
   margin: 0.85rem 0 0;
   max-height: 280px;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   border: 1px solid #d0c5ac;
   border-radius: 8px;
   background: #fff;
-}
-
-body.puzzle-mode .moves-wrap {
-  max-height: none;
-  overflow: visible;
 }
 
 .moves-inline {
@@ -1037,9 +1036,6 @@ body.puzzle-mode .moves-wrap {
 
   .right-col {
     padding: 0.55rem;
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
   }
 
   .board {
@@ -1050,7 +1046,7 @@ body.puzzle-mode .moves-wrap {
   }
 
   .board-shell {
-    width: min(92vw, 540px);
+    width: min(92vw, 540px, max(120px, calc(100dvh - 19rem)));
     height: auto;
   }
 
@@ -1544,4 +1540,15 @@ body.theme-dark .position-recall-actions > button.is-on {
   background: #522727;
   border-color: #9b5151;
   color: #ffdada;
+}
+
+@media (max-width: 980px) and (orientation: landscape) {
+  .layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .board-shell {
+    width: min(100%, max(100px, calc(100dvh - 5rem)));
+  }
 }

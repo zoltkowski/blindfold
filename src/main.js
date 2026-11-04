@@ -84,6 +84,10 @@ app.innerHTML = `
               Hear Computer Moves
             </label>
             <label class="checkbox-row">
+              <input id="showSpokenMoves" type="checkbox" checked />
+              Show Spoken Moves in Puzzle and Game
+            </label>
+            <label class="checkbox-row">
               <input id="speakCheck" type="checkbox" />
               Speak Checks
             </label>
@@ -381,6 +385,7 @@ const elements = {
   optionEngineStrength: document.getElementById('optionEngineStrength'),
   optionStrengthValue: document.getElementById('optionStrengthValue'),
   speakComputer: document.getElementById('speakComputer'),
+  showSpokenMoves: document.getElementById('showSpokenMoves'),
   speakCheck: document.getElementById('speakCheck'),
   voiceOnOtherPuzzles: document.getElementById('voiceOnOtherPuzzles'),
   figurineNotation: document.getElementById('figurineNotation'),
@@ -877,6 +882,7 @@ const state = {
   showBlindDests: true,
   showCoordinates: false,
   showLastMove: true,
+  showSpokenMoves: true,
   showMoveMarks: true,
   boardRevealEvery: BOARD_REVEAL_MIN,
   darkMode: false,
@@ -1599,6 +1605,7 @@ function writeSettings() {
     showBlindDests: state.showBlindDests,
     showCoordinates: state.showCoordinates,
     showLastMove: state.showLastMove,
+    showSpokenMoves: state.showSpokenMoves,
     showMoveMarks: state.showMoveMarks,
     boardRevealEvery: state.boardRevealEvery,
     darkMode: state.darkMode,
@@ -1685,6 +1692,9 @@ function loadSettingsIntoState() {
   if (typeof saved.showLastMove === 'boolean') {
     state.showLastMove = saved.showLastMove;
   }
+  if (typeof saved.showSpokenMoves === 'boolean') {
+    state.showSpokenMoves = saved.showSpokenMoves;
+  }
   if (typeof saved.showMoveMarks === 'boolean') {
     state.showMoveMarks = saved.showMoveMarks;
   }
@@ -1718,6 +1728,7 @@ function applySettingsToUi() {
   elements.showBlindDests.checked = state.showBlindDests;
   elements.showCoordinates.checked = state.showCoordinates;
   elements.showLastMove.checked = state.showLastMove;
+  elements.showSpokenMoves.checked = state.showSpokenMoves;
   elements.showMoveMarks.checked = state.showMoveMarks;
   elements.boardReveal.value = String(state.boardRevealEvery);
   elements.boardRevealValue.textContent = formatBoardRevealLabel(state.boardRevealEvery);
@@ -2834,46 +2845,13 @@ function updatePuzzlePanel() {
     return;
   }
 
-  elements.puzzlePanel.hidden = false;
-  elements.openPuzzleLinkBtn.hidden = false;
-  elements.showSolutionBtn.hidden = false;
   const p = state.puzzle;
-  const solvedSolutionCount = Math.max(0, p.solutionIndex - p.contextMoves.length);
+  const wrong = state.puzzleLastAttempt?.wrong ? state.puzzleLastAttempt.text : '';
+  elements.puzzlePanel.hidden = !wrong;
+  elements.puzzleContext.textContent = wrong ? 'Wrong move: ' + wrong : '';
+  elements.openPuzzleLinkBtn.hidden = false;
   elements.openPuzzleLinkBtn.href = `https://lichess.org/training/${p.id}`;
-  const shownSolutionSans = p.revealSolutionText
-    ? p.solutionSans
-    : p.solutionSans.slice(0, solvedSolutionCount);
-  const activeAbsPly = state.puzzleViewIndex > 0 ? (state.puzzleViewIndex - 1) : null;
-  const hasContext = p.contextSans.length > 0;
-  const hasSolution = shownSolutionSans.length > 0;
-  elements.puzzleContext.textContent = '';
-  if (hasContext) {
-    appendSanMovesToNode(elements.puzzleContext, p.contextSans, p.contextStartPly, {
-      activeAbsPly,
-      solutionStartPly: p.startPly
-    });
-  }
-  if (hasSolution) {
-    appendSanMovesToNode(elements.puzzleContext, shownSolutionSans, p.startPly, {
-      activeAbsPly,
-      solutionStartPly: p.startPly
-    });
-  }
-  if (!hasContext && !hasSolution) {
-    elements.puzzleContext.textContent = '-';
-  }
-  if (state.puzzleLastAttempt?.wrong && state.puzzleLastAttempt.text) {
-    const wrong = document.createElement('span');
-    wrong.className = 'puzzle-wrong-inline';
-    wrong.textContent = ` ${state.puzzleLastAttempt.text}`;
-    elements.puzzleContext.appendChild(wrong);
-  }
-  if (p.solved) {
-    const solvedFace = document.createElement('span');
-    solvedFace.className = 'puzzle-solved-face';
-    solvedFace.textContent = ' :)';
-    elements.puzzleContext.appendChild(solvedFace);
-  }
+  elements.showSolutionBtn.hidden = false;
   elements.showSolutionBtn.disabled = p.solved || state.puzzleAutoPlaying;
 }
 
@@ -3592,7 +3570,9 @@ async function loadLichessPuzzle() {
 
     state.game = setGameFromVerboseMoves(verbose, contextStartPly) ?? new Chess(baseGame.fen());
     updateAll();
-    speakPuzzleContextIfEnabled(contextSans);
+    if (contextSans.length && elements.speakComputer.checked && typeof speechSynthesis !== 'undefined') {
+      handleReviewPlay();
+    }
   } catch (error) {
     state.puzzleRevealPrevView = null;
     state.puzzleLastAttempt = null;
@@ -5655,12 +5635,13 @@ function advanceGameDrillReplay() {
   const moves = gameDrillPrefixMoves();
   const viewed = state.reviewPly ?? moves.length;
   if (viewed >= moves.length) {
+    state.reviewPly = null;
     state.blindPuzzles.gameDrillReplayState = 'idle';
-    updateReviewControls();
+    updateAll();
     return;
   }
   const next = viewed + 1;
-  state.reviewPly = next >= moves.length ? null : next;
+  state.reviewPly = next;
   const san = moves[viewed].san;
   speakMoveIfEnabled(san);
   const pause = next < moves.length ? replayMovePauseMs() : 0;
@@ -6159,7 +6140,10 @@ function stopReviewPlayback() {
   window.clearTimeout(reviewPlaybackTimerId);
   reviewPlaybackTimerId = null;
   if (state.speaking) cancelTtsPlayback();
+  updateLastMove();
+  updateMainControlsVisibility();
   updateReviewControls();
+  scheduleMovesViewport();
 }
 
 function reviewPlaybackPosition() {
@@ -6956,25 +6940,6 @@ function speakPuzzleSolvedIfEnabled() {
   speechSynthesis.speak(utterance);
 }
 
-function speakPuzzleContextIfEnabled(contextSans) {
-  if (!elements.speakComputer.checked || typeof speechSynthesis === 'undefined') {
-    return;
-  }
-  if (!Array.isArray(contextSans) || !contextSans.length) {
-    return;
-  }
-  if (state.speaking) {
-    cancelTtsPlayback();
-  }
-  const spokenMoves = contextSans
-    .map((san) => state.moveLanguage === 'pl' ? sanToPolishSpeech(san) : sanToEnglishSpeech(san))
-    .filter(Boolean);
-  if (!spokenMoves.length) {
-    return;
-  }
-  speakTtsSequence(spokenMoves, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
-}
-
 async function playEngineMoveIfNeeded() {
   if (state.sessionMode === 'game' && !state.gameStarted) {
     return;
@@ -7088,9 +7053,26 @@ function updateMovesList() {
     frag.appendChild(document.createTextNode(' '));
   }
   elements.movesBody.appendChild(frag);
+  scheduleMovesViewport();
+}
+
+function gameDrillIntroFinished() {
+  return isGameDrillModeActive() && state.reviewPly === null
+    && state.blindPuzzles.gameDrillReplayState !== 'playing'
+    && !state.game.history().length;
+}
+
+function hideSpokenPlaybackMove() {
+  const playing = (state.sessionMode === 'puzzle' && reviewPlaybackActive)
+    || (isGameDrillModeActive() && state.blindPuzzles.gameDrillReplayState === 'playing');
+  return playing && elements.speakComputer.checked && typeof speechSynthesis !== 'undefined' && !state.showSpokenMoves;
 }
 
 function updateLastMove() {
+  if ((state.sessionMode === 'puzzle' && !reviewPlaybackActive) || gameDrillIntroFinished() || hideSpokenPlaybackMove()) {
+    elements.lastMoveText.textContent = '';
+    return;
+  }
   let hist = state.game.history({ verbose: false });
   let viewedPly = hist.length;
   if (state.sessionMode === 'puzzle' && state.puzzle) {
@@ -7187,7 +7169,15 @@ function updateStatus() {
     elements.statusText.textContent = boardGame.turn() === 'w' ? 'white move' : 'black move';
     return;
   }
-  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
+  if (isGameDrillModeActive()) {
+    if (hideSpokenPlaybackMove()) {
+      elements.statusText.textContent = 'Playing moves…';
+      return;
+    }
+    if (gameDrillIntroFinished()) {
+      elements.statusText.textContent = turn + ' to move';
+      return;
+    }
     const prefixSans = gameDrillPrefixMoves().map((mv) => mv.san);
     const hist = [...prefixSans, ...state.game.history({ verbose: false })];
     const viewed = Math.max(0, Math.min(hist.length, state.reviewPly ?? hist.length));
@@ -7348,9 +7338,8 @@ function updateMainControlsVisibility() {
     && (forceShowLastMoveInGame || state.showLastMove)
     && hasLastMoveText;
   const showLastMoveRowInBlind = blindHasPlayedMoves && hasLastMoveText;
-  const showLastMoveRow = showLastMoveRowInGame || showLastMoveRowInBlind;
-  const canShowLastMoveRow = state.sessionMode === 'game' || blindStructuredLastMove;
-  elements.lastMoveRow.hidden = !canShowLastMoveRow || hideBelowSlider || !showLastMoveRow;
+  const showLastMoveRowInPuzzle = inPuzzle && reviewPlaybackActive && hasLastMoveText;
+  elements.lastMoveRow.hidden = hideBelowSlider || !(showLastMoveRowInGame || showLastMoveRowInBlind || showLastMoveRowInPuzzle);
   const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
   document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
   const newGamePending = state.sessionMode === 'game' && !state.gameStarted && !hideBelowSlider;
@@ -7359,6 +7348,7 @@ function updateMainControlsVisibility() {
     && (
       (state.sessionMode === 'game' && state.gameStarted && hasLastMoveText)
       || (blindStructuredLastMove && hasLastMoveText)
+      || showLastMoveRowInPuzzle
     );
   elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
   document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
@@ -7935,6 +7925,12 @@ elements.showCoordinates.addEventListener('change', () => {
   writeSettings();
 });
 
+elements.showSpokenMoves.addEventListener('change', () => {
+  state.showSpokenMoves = elements.showSpokenMoves.checked;
+  writeSettings();
+  updateAll();
+});
+
 elements.showLastMove.addEventListener('change', () => {
   state.showLastMove = elements.showLastMove.checked;
   updateMainControlsVisibility();
@@ -8047,6 +8043,7 @@ elements.speakComputer.addEventListener('change', () => {
     cancelTtsPlayback();
   }
   writeSettings();
+  updateAll();
 });
 
 elements.puzzleBacktrack.addEventListener('input', () => {
@@ -8206,6 +8203,30 @@ for (const button of movementPieceButtons) {
   });
 }
 
+let movesViewportFrame = null;
+
+function scheduleMovesViewport() {
+  if (movesViewportFrame !== null) return;
+  movesViewportFrame = window.requestAnimationFrame(() => {
+    movesViewportFrame = null;
+    const list = elements.movesWrap;
+    if (!list.getClientRects().length) return;
+    const column = list.closest('.right-col');
+    const available = column.getBoundingClientRect().bottom - list.getBoundingClientRect().top
+      - Number.parseFloat(getComputedStyle(column).paddingBottom);
+    list.style.maxHeight = Math.max(0, Math.min(280, Math.floor(available))) + 'px';
+    const active = list.querySelector('.active-move');
+    if (!active) {
+      list.scrollTop = 0;
+      return;
+    }
+    const offset = active.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    list.scrollTop += offset - (list.clientHeight - active.offsetHeight) / 2;
+  });
+}
+
+window.addEventListener('resize', scheduleMovesViewport);
+
 function syncMovesVisibilityUi() {
   elements.movesWrap.style.display = state.movesVisible ? 'block' : 'none';
   elements.toggleMovesBtn.hidden = false;
@@ -8213,6 +8234,7 @@ function syncMovesVisibilityUi() {
   elements.toggleMovesBtn.setAttribute('aria-label', label);
   elements.toggleMovesBtn.title = label;
   elements.toggleMovesBtn.classList.toggle('is-on', state.movesVisible);
+  scheduleMovesViewport();
 }
 
 elements.toggleMovesBtn.addEventListener('click', () => {
