@@ -2311,7 +2311,7 @@ function gameSnapshotPly(total) {
 function transformPiecesForDisplay(pieces) {
   switch (state.displayMode) {
     case 'no-pieces':
-      return new Map();
+      return state.revealPosition ? pieces : new Map();
     case 'same-pieces':
       return new Map([...pieces].map(([square, piece]) => [square, { ...piece, color: 'white' }]));
     case 'white-only':
