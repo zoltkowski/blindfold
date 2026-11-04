@@ -5351,7 +5351,15 @@ function speakPositionTask(task) {
   if (state.speaking) {
     cancelTtsPlayback();
   }
+  const figurineNames = {
+    '♔': 'król', '♚': 'król', '♕': 'hetman', '♛': 'hetman',
+    '♖': 'wieża', '♜': 'wieża', '♗': 'goniec', '♝': 'goniec',
+    '♘': 'skoczek', '♞': 'skoczek', '♙': 'pion', '♟': 'pion'
+  };
   const spokenTask = String(task)
+    .replace(/^White:/m, 'Białe:')
+    .replace(/^Black:/m, 'Czarne:')
+    .replace(/([♔♕♖♗♘♙♚♛♜♝♞♟])([a-h][1-8])/g, (_match, piece, square) => `${figurineNames[piece]} ${square}`)
     .replace(/\b\d+\.(?:\.\.)?/g, ' ')
     .replace(/\bK([a-h][1-8])\b/gi, (_m, sq) => `król ${sq.toLowerCase()}`)
     .replace(/\bH([a-h][1-8])\b/gi, (_m, sq) => `hetman ${sq.toLowerCase()}`)
@@ -5362,17 +5370,7 @@ function speakPositionTask(task) {
       const parts = list.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
       return parts.join(', ');
     });
-  const utterance = new SpeechSynthesisUtterance(spokenTask);
-  applyTtsOptions(utterance, 'pl-PL');
-  utterance.onstart = () => {
-    state.speaking = true;
-    refreshVoiceListeningState();
-  };
-  utterance.onend = () => {
-    state.speaking = false;
-    refreshVoiceListeningState();
-  };
-  speechSynthesis.speak(utterance);
+  speakTtsSequence([spokenTask], 'pl-PL');
 }
 
 function startPositionExercise() {
@@ -5978,6 +5976,7 @@ function startMattingByType(typeKey) {
   state.blindPuzzles.staticPrompt = formatMattingPositionPrompt(game);
   updateAll();
   setVoiceMode(false);
+  speakPositionTask(state.blindPuzzles.staticPrompt);
 }
 
 function startMattingPuzzle() {
