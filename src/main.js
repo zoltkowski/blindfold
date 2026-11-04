@@ -237,7 +237,6 @@ app.innerHTML = `
         <div id="blindButtons" class="blind-buttons">
           <button id="blindSquareColorsBtn" type="button">Square Colors</button>
           <button id="blindMovementsBtn" type="button">Movements</button>
-          <button id="blindCheckBtn" type="button">Checks</button>
           <button id="blindMatingBtn" type="button">Mating</button>
           <button id="blindPositionRecallBtn" type="button">Position Recall</button>
           <button id="blindPositionBtn" type="button">Position</button>
@@ -444,7 +443,6 @@ const elements = {
   blindPositionBtn: document.getElementById('blindPositionBtn'),
   blindSquareColorsBtn: document.getElementById('blindSquareColorsBtn'),
   blindMovementsBtn: document.getElementById('blindMovementsBtn'),
-  blindCheckBtn: document.getElementById('blindCheckBtn'),
   blindMatingBtn: document.getElementById('blindMatingBtn'),
   blindButtons: document.getElementById('blindButtons'),
   blindPositionRecallBtn: document.getElementById('blindPositionRecallBtn'),
@@ -3722,7 +3720,7 @@ function recordBlindAttempt(square, correct) {
 }
 
 function renderBlindMovementFeedback(mode) {
-  const movementMode = mode === 'movements' || mode === 'check';
+  const movementMode = mode === 'movements';
   elements.blindInputFeedback.hidden = !movementMode;
   if (!movementMode) {
     return;
@@ -3797,8 +3795,9 @@ function updateBlindPanel() {
     return;
   }
   elements.blindPanel.classList.toggle('square-color-layout', bp.mode === 'square-colors');
-  elements.blindPanel.classList.toggle('movement-layout', bp.mode === 'movements');
-  elements.blindPanel.classList.toggle('check-layout', bp.mode === 'check');
+  const checkQuestion = bp.mode === 'movements' && bp.movementVariant === 'check';
+  elements.blindPanel.classList.toggle('movement-layout', bp.mode === 'movements' && !checkQuestion);
+  elements.blindPanel.classList.toggle('check-layout', checkQuestion);
   elements.blindPanel.classList.toggle('position-layout', bp.mode === 'position');
   elements.blindPanel.classList.toggle('matting-layout', isBlindMattingModeValue(bp.mode));
   elements.blindPanel.classList.toggle('game-drill-layout', bp.mode === 'game-drill');
@@ -3856,7 +3855,7 @@ function updateBlindPanel() {
       ? formatMsAsSeconds(averageMs(bp.responseTimesMs))
       : '-';
   } else {
-    const extra = (bp.mode === 'movements' || bp.mode === 'check')
+    const extra = bp.mode === 'movements'
       ? ` (${bp.givenSquares.size}/${bp.expectedSquares.size})`
       : '';
     elements.blindCorrect.textContent = `${bp.correct}${extra}`;
@@ -4447,8 +4446,7 @@ function shouldShowBlindMoveControls() {
     && (isBlindMattingModeValue(state.blindPuzzles.mode)
       || state.blindPuzzles.mode === 'position'
       || state.blindPuzzles.mode === 'game-drill'
-      || state.blindPuzzles.mode === 'movements'
-      || state.blindPuzzles.mode === 'check');
+      || state.blindPuzzles.mode === 'movements');
 }
 
 function shouldShowBlindVoiceControls() {
@@ -4466,8 +4464,7 @@ function isBlindStructuredLastMoveMode() {
 function isBlindAnswerEntryMode() {
   return state.sessionMode === 'blind-puzzles'
     && (state.blindPuzzles.mode === 'square-colors'
-      || state.blindPuzzles.mode === 'movements'
-      || state.blindPuzzles.mode === 'check');
+      || state.blindPuzzles.mode === 'movements');
 }
 
 function kingsAdjacent(a, b) {
@@ -4968,15 +4965,19 @@ function askNextKnightQuestion() {
 }
 
 function askNextMovementQuestion() {
-  const piece = pickMovementPieceForQuestion();
-  if (piece === 'knight') {
+  if (Math.random() < 1 / 3) {
+    askNextCheckQuestion();
+  } else if (pickMovementPieceForQuestion() === 'knight') {
     askNextKnightQuestion();
-    return;
+  } else {
+    askNextBishopQuestion();
   }
-  askNextBishopQuestion();
+  updateSquareColorControlsVisibility();
 }
 
 function askNextCheckQuestion() {
+  state.blindPuzzles.movementVariant = 'check';
+  state.blindPuzzles.routeTask = null;
   const king = randomSquare();
   const roles = ['R', 'N', 'B', 'Q'];
   const role = roles[Math.floor(Math.random() * roles.length)];
@@ -5129,7 +5130,8 @@ function handleKnightVoice(transcript) {
 }
 
 function handleCheckVoice(transcript) {
-  if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'check' || !state.blindPuzzles.running) {
+  if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'movements'
+    || state.blindPuzzles.movementVariant !== 'check' || !state.blindPuzzles.running) {
     return false;
   }
   const heardSquares = extractSquaresFromVoice(transcript);
@@ -5156,21 +5158,20 @@ function handleCheckVoice(transcript) {
     finishBlindPuzzleGeneric(false);
     return true;
   }
-  finishBlindQuestionOrAskNext(askNextCheckQuestion);
+  finishBlindQuestionOrAskNext(askNextMovementQuestion);
   return true;
 }
 
 function submitBlindStop() {
-  if (state.sessionMode !== 'blind-puzzles' || !state.blindPuzzles.running) {
+  if (state.sessionMode !== 'blind-puzzles' || !state.blindPuzzles.running
+    || state.blindPuzzles.mode !== 'movements') {
     return false;
   }
-  if (state.blindPuzzles.mode === 'movements'
-    && state.blindPuzzles.movementPiece === 'N'
-    && state.blindPuzzles.movementVariant !== 'route') {
-    return handleKnightVoice('stop');
-  }
-  if (state.blindPuzzles.mode === 'check') {
+  if (state.blindPuzzles.movementVariant === 'check') {
     return handleCheckVoice('stop');
+  }
+  if (state.blindPuzzles.movementPiece === 'N' && state.blindPuzzles.movementVariant !== 'route') {
+    return handleKnightVoice('stop');
   }
   return false;
 }
@@ -5209,13 +5210,13 @@ function handleBlindPuzzleVoice(transcript) {
   if (handleSquareColorsVoice(transcript)) {
     return true;
   }
+  if (handleCheckVoice(transcript)) {
+    return true;
+  }
   if (handleBishopVoice(transcript)) {
     return true;
   }
   if (handleKnightVoice(transcript)) {
-    return true;
-  }
-  if (handleCheckVoice(transcript)) {
     return true;
   }
   return false;
@@ -5850,22 +5851,6 @@ function startMovementsPuzzle() {
   updateAll();
   startBlindPuzzleTimer();
   askNextMovementQuestion();
-  setVoiceMode(state.voiceOnOtherPuzzles);
-}
-
-function startCheckPuzzle() {
-  resetBlindPuzzleSession();
-  state.sessionMode = 'blind-puzzles';
-  state.puzzle = null;
-  state.puzzleAutoPlaying = false;
-  state.game = new Chess();
-  state.reviewPly = null;
-  state.blindPuzzles.mode = 'check';
-  state.blindPuzzles.running = true;
-  state.blindPuzzles.total = state.blindQuestionCount;
-  updateAll();
-  startBlindPuzzleTimer();
-  askNextCheckQuestion();
   setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
@@ -7361,10 +7346,9 @@ function updateSquareColorControlsVisibility() {
   const squareColors = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors';
   const stopOnly = state.sessionMode === 'blind-puzzles'
-    && (state.blindPuzzles.mode === 'check'
-      || (state.blindPuzzles.mode === 'movements'
-        && state.blindPuzzles.movementPiece === 'N'
-        && state.blindPuzzles.movementVariant !== 'route'));
+    && state.blindPuzzles.mode === 'movements'
+    && (state.blindPuzzles.movementVariant === 'check'
+      || (state.blindPuzzles.movementPiece === 'N' && state.blindPuzzles.movementVariant !== 'route'));
   const visible = (squareColors || stopOnly) && !elements.statusRow.hidden;
   elements.squareColorControls.hidden = !visible;
   elements.squareColorWhiteBtn.hidden = !squareColors;
@@ -8356,9 +8340,6 @@ elements.blindSquareColorsBtn.addEventListener('click', () => {
 });
 elements.blindMovementsBtn.addEventListener('click', () => {
   startMovementsPuzzle();
-});
-elements.blindCheckBtn.addEventListener('click', () => {
-  startCheckPuzzle();
 });
 elements.blindMatingBtn.addEventListener('click', () => {
   startMattingPuzzle();
