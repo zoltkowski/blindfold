@@ -781,6 +781,12 @@ body.status-replaced-by-lastmove #lastMoveRow {
   margin-top: 1rem;
 }
 
+body.follow-browse-mode #statusRow,
+body.follow-browse-mode #lastMoveRow {
+  min-height: 1.9rem;
+  margin-top: 1rem;
+}
+
 .moves-panel {
   margin-top: 0.8rem;
 }
@@ -1007,6 +1013,11 @@ body.status-replaced-by-lastmove #lastMoveRow {
 }
 
 @media (max-width: 980px) {
+  body.follow-browse-mode #statusRow,
+  body.follow-browse-mode #lastMoveRow {
+    margin-top: 0.8rem;
+  }
+
   html,
   body,
   #app {

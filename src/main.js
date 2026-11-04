@@ -3567,6 +3567,8 @@ function trySkipContextToSolutionByInput(text) {
   return syncPuzzleToProgress();
 }
 
+const lichessPuzzleQueue = { difficulty: '', token: '', puzzles: [], seenIds: new Set() };
+
 async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
   clearBlindClickSelection();
@@ -3577,35 +3579,38 @@ async function loadLichessPuzzle() {
   elements.statusText.textContent = 'Loading puzzle from Lichess...';
 
   try {
-    const query = new URLSearchParams();
-    query.set('difficulty', state.puzzleDifficulty);
     const token = lichessTokenValid ? lichessToken : '';
-    const previousSolvedId = state.puzzle?.solved ? state.puzzle.id : null;
-    const fetchNext = () => fetch(`https://lichess.org/api/puzzle/next?${query.toString()}`, {
-      cache: 'no-store',
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    let response = await fetchNext();
-    if (token && (response.status === 401 || response.status === 403) && token === lichessToken) {
-      lichessTokenValid = false;
-      storeLichessToken();
-      updateLichessTokenSettings('Lichess rejected the saved token. Check or remove it.');
-      throw new Error('Lichess token rejected');
+    if (lichessPuzzleQueue.difficulty !== state.puzzleDifficulty || lichessPuzzleQueue.token !== token) {
+      lichessPuzzleQueue.difficulty = state.puzzleDifficulty;
+      lichessPuzzleQueue.token = token;
+      lichessPuzzleQueue.puzzles = [];
     }
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    let payload = await response.json();
-    if (previousSolvedId && payload?.puzzle?.id === previousSolvedId) {
-      response = await fetchNext();
+    if (!lichessPuzzleQueue.puzzles.length) {
+      const query = new URLSearchParams({ difficulty: state.puzzleDifficulty, nb: '5' });
+      const response = await fetch(`https://lichess.org/api/puzzle/batch/mix?${query.toString()}`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (token && (response.status === 401 || response.status === 403) && token === lichessToken) {
+        lichessTokenValid = false;
+        storeLichessToken();
+        updateLichessTokenSettings('Lichess rejected the saved token. Check or remove it.');
+        throw new Error('Lichess token rejected');
+      }
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      payload = await response.json();
-      if (payload?.puzzle?.id === previousSolvedId) {
-        throw new Error('Lichess returned the same puzzle');
-      }
+      const batch = await response.json();
+      if (!Array.isArray(batch?.puzzles)) throw new Error('Invalid puzzle batch');
+      lichessPuzzleQueue.puzzles = batch.puzzles.filter((item) => item?.puzzle?.id
+        && item.puzzle.id !== state.puzzle?.id && !lichessPuzzleQueue.seenIds.has(item.puzzle.id));
     }
+    while (lichessPuzzleQueue.puzzles.length
+      && lichessPuzzleQueue.seenIds.has(lichessPuzzleQueue.puzzles[0]?.puzzle?.id)) {
+      lichessPuzzleQueue.puzzles.shift();
+    }
+    const payload = lichessPuzzleQueue.puzzles.shift();
+    if (!payload) throw new Error('Lichess returned the same puzzle');
     const pgn = payload?.game?.pgn;
     const puzzle = payload?.puzzle;
     if (!pgn || !puzzle?.solution?.length || typeof puzzle.initialPly !== 'number') {
@@ -3667,6 +3672,7 @@ async function loadLichessPuzzle() {
       startFen: puzzleStartGame.fen(),
       verboseMoves: verbose
     };
+    lichessPuzzleQueue.seenIds.add(puzzle.id);
     state.sessionMode = 'puzzle';
     state.revealPosition = false;
     state.boardOrientation = state.puzzleFixedOrientation
