@@ -700,7 +700,10 @@ body.new-game-pending #statusText {
   padding: 0;
 }
 
-#showSolutionBtn svg,
+#showSolutionBtn {
+  font-size: 1rem;
+}
+
 #openPuzzleLinkBtn svg {
   width: 1.05rem;
   height: 1.05rem;
