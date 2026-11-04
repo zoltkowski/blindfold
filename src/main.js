@@ -2377,12 +2377,14 @@ function updateBoard() {
   elements.rotateBoardBtn.title = rotateLabel;
   elements.rotateBoardBtn.setAttribute('aria-label', rotateLabel);
   const positionRecallAnswerMode = canEditPositionRecall();
-  const movableColor = (state.sessionMode === 'puzzle' || followMode)
+  const followQuizInput = followMode && isFollowQuizPlayable()
+    && !isFollowQuizAutoTurn() && !state.followGame.quizEvaluating;
+  const movableColor = followQuizInput ? turnColor : (state.sessionMode === 'puzzle' || followMode)
     ? undefined
     : (reviewLocked
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
-  const boardInputEnabled = (followMode || recall || movements || boardIsStale || isBlindClickInputActive(boardIsStale))
+  const boardInputEnabled = ((followMode && !followQuizInput) || recall || movements || boardIsStale || isBlindClickInputActive(boardIsStale))
     ? false
     : (state.sessionMode !== 'game' || state.gameStarted);
   const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
@@ -2409,18 +2411,18 @@ function updateBoard() {
       showDests: positionRecallAnswerMode ? false : (!suppressVisualMarks && shouldShowAnyMoveDots()),
       dests: positionRecallAnswerMode
         ? new Map()
-        : ((state.sessionMode === 'puzzle' || followMode || reviewLocked) ? new Map() : toDests(boardGame)),
+        : ((state.sessionMode === 'puzzle' || (followMode && !followQuizInput) || reviewLocked) ? new Map() : toDests(boardGame)),
       events: {
         after: positionRecallAnswerMode ? undefined : onBoardMove
       }
     },
     draggable: {
-      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !followMode && boardInputEnabled),
+      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && boardInputEnabled),
       showGhost: true,
       deleteOnDropOff: positionRecallAnswerMode
     },
     selectable: {
-      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !followMode && !reviewLocked && boardInputEnabled)
+      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !reviewLocked && boardInputEnabled)
     },
     events: {
       // Chessground emits move before change, which detects off-board removals.
@@ -2497,9 +2499,25 @@ function isGameBoardDelayed() {
   return gameSnapshotPly(total) !== total;
 }
 
+function isFollowBoardDelayed() {
+  const boardGame = getBoardGame();
+  return boardGameForDisplayedPieces(boardGame) !== boardGame;
+}
+
 function isBlindClickInputActive(boardIsStale) {
   if (state.sessionMode === 'puzzle') {
     return !!state.puzzle && !state.puzzle.solved && !state.puzzleAutoPlaying;
+  }
+  if (state.sessionMode === 'follow-game') {
+    if (!isFollowQuizPlayable() || isFollowQuizAutoTurn() || state.followGame.quizEvaluating || isReviewLocked()) {
+      return false;
+    }
+    const turn = state.game.turn();
+    return (boardIsStale ?? isFollowBoardDelayed())
+      || state.displayMode === 'no-pieces'
+      || (state.displayMode === 'white-only' && turn === 'b')
+      || (state.displayMode === 'black-only' && turn === 'w')
+      || (state.displayMode === 'same-pieces' && turn === 'b');
   }
   if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()
     || isReviewLocked() || !isUserTurn()) {
@@ -2634,7 +2652,7 @@ function handleBlindBoardInputAt(x, y) {
     return;
   }
   if (!isBlindClickInputActive()) {
-    clearBlindClickSelection();
+    if (state.blindClickFrom) clearBlindClickSelection();
     return;
   }
 
@@ -2661,7 +2679,8 @@ function handleBlindBoardInputAt(x, y) {
 
   if (!state.blindClickFrom) {
     const fromMoves = legalMoves.filter((mv) => mv.from === square);
-    if (isGameBoardDelayed() || (clickedOwnPiece && fromMoves.length)) {
+    if ((state.sessionMode === 'follow-game' ? isFollowBoardDelayed() : isGameBoardDelayed())
+      || (clickedOwnPiece && fromMoves.length)) {
       setBlindClickFrom(square);
     } else {
       clearBlindClickSelection();
