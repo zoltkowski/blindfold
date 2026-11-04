@@ -235,13 +235,13 @@ app.innerHTML = `
 
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
         <div id="blindButtons" class="blind-buttons">
-          <button id="blindSquareColorsBtn" type="button" data-blind-mode="square-colors">Square Colors</button>
-          <button id="blindMovementsBtn" type="button" data-blind-mode="movements">Movements</button>
-          <button id="blindCheckBtn" type="button" data-blind-mode="check">Checks</button>
-          <button id="blindMatingBtn" type="button" data-blind-mode="mating">Mating</button>
-          <button id="blindPositionRecallBtn" type="button" data-blind-mode="position-recall">Position Recall</button>
-          <button id="blindPositionBtn" type="button" data-blind-mode="position">Position</button>
-          <button id="blindGameBtn" type="button" data-blind-mode="game-drill">Game</button>
+          <button id="blindSquareColorsBtn" type="button">Square Colors</button>
+          <button id="blindMovementsBtn" type="button">Movements</button>
+          <button id="blindCheckBtn" type="button">Checks</button>
+          <button id="blindMatingBtn" type="button">Mating</button>
+          <button id="blindPositionRecallBtn" type="button">Position Recall</button>
+          <button id="blindPositionBtn" type="button">Position</button>
+          <button id="blindGameBtn" type="button">Game</button>
         </div>
         <div id="blindMain" class="blind-main">
           <div class="blind-stats">
@@ -2223,6 +2223,7 @@ function updateBoard() {
       check: !suppressVisualMarks,
       custom: customHighlights
     },
+    autoCastle: !positionRecallAnswerMode,
     movable: {
       free: positionRecallAnswerMode,
       color: positionRecallAnswerMode ? 'both' : (boardInputEnabled ? movableColor : undefined),
@@ -2231,7 +2232,7 @@ function updateBoard() {
         ? new Map()
         : ((state.sessionMode === 'puzzle' || followMode || reviewLocked) ? new Map() : toDests(boardGame)),
       events: {
-        after: onBoardMove
+        after: positionRecallAnswerMode ? undefined : onBoardMove
       }
     },
     draggable: {
@@ -2243,6 +2244,8 @@ function updateBoard() {
       enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !followMode && !reviewLocked && boardInputEnabled)
     },
     events: {
+      // Chessground emits move before change, which detects off-board removals.
+      move: positionRecallAnswerMode ? onBoardMove : undefined,
       change: onBoardChange,
       select: onBoardSelect
     },
@@ -3766,11 +3769,7 @@ function updateBlindPanel() {
   const active = state.sessionMode === 'blind-puzzles';
   elements.blindPanel.hidden = !active;
   const recall = isPositionRecallMode();
-  const mode = active ? state.blindPuzzles.mode : null;
-  const selectedMode = isBlindMattingModeValue(mode) ? 'mating' : mode;
-  for (const button of elements.blindButtons.children) {
-    button.hidden = !!selectedMode && button.dataset.blindMode !== selectedMode;
-  }
+  elements.blindButtons.hidden = active && !!state.blindPuzzles.mode;
   elements.blindPanel.classList.toggle('position-recall-layout', recall);
   if (!recall) elements.positionRecallTools.hidden = true;
   if (!active) {
@@ -4106,34 +4105,39 @@ function renderPositionRecallTools() {
     return;
   }
   syncPositionRecallTrashButton();
-  const rows = positionRecallPaletteRows();
-  const selectedIndex = Number.isInteger(state.blindPuzzles.positionRecallSelectedIndex)
-    ? state.blindPuzzles.positionRecallSelectedIndex
-    : -1;
-  let nextIndex = 0;
-  elements.positionRecallPalette.innerHTML = rows
-    .map((row) => {
-      const content = row.pieces
-        .map((piece) => {
-          const index = nextIndex;
-          nextIndex += 1;
-          return `
-            <button
-              class="position-recall-piece position-recall-piece-${piece.color}${index === selectedIndex ? ' is-selected' : ''}"
-              type="button"
-              aria-pressed="${index === selectedIndex}"
-              data-piece-index="${index}"
-              data-piece-color="${piece.color}"
-              data-piece-role="${piece.role}"
-              title="${piece.color} ${piece.role}"
-              aria-label="${piece.color} ${piece.role}"
-            ><span class="position-recall-piece-art cg-wrap"><piece class="${piece.role} ${piece.color}"></piece></span></button>
-          `;
-        })
-        .join('');
-      return `<div class="position-recall-palette-row">${content}</div>`;
-    })
-    .join('');
+  // Keep pointer capture intact while the round timer refreshes the panel.
+  if (!elements.positionRecallPalette.firstElementChild) {
+    const rows = positionRecallPaletteRows();
+    let nextIndex = 0;
+    elements.positionRecallPalette.innerHTML = rows
+      .map((row) => {
+        const content = row.pieces
+          .map((piece) => {
+            const index = nextIndex;
+            nextIndex += 1;
+            return `
+              <button
+                class="position-recall-piece position-recall-piece-${piece.color}"
+                type="button"
+                aria-pressed="false"
+                data-piece-index="${index}"
+                data-piece-color="${piece.color}"
+                data-piece-role="${piece.role}"
+                title="${piece.color} ${piece.role}"
+                aria-label="${piece.color} ${piece.role}"
+              ><span class="position-recall-piece-art cg-wrap"><piece class="${piece.role} ${piece.color}"></piece></span></button>
+            `;
+          })
+          .join('');
+        return `<div class="position-recall-palette-row">${content}</div>`;
+      })
+      .join('');
+  }
+  for (const button of elements.positionRecallPalette.querySelectorAll('[data-piece-index]')) {
+    const selected = Number(button.dataset.pieceIndex) === state.blindPuzzles.positionRecallSelectedIndex;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  }
 }
 
 function placePositionRecallPiece(square, piece) {
@@ -5389,7 +5393,7 @@ function handlePositionRecallBoardClick(square) {
     return;
   }
   const selectedPiece = state.blindPuzzles.positionRecallSelectedPiece;
-  if (selectedPiece) {
+  if (selectedPiece && !ground.state.pieces.has(square)) {
     placePositionRecallPiece(square, selectedPiece);
   }
 }
