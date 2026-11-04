@@ -686,7 +686,7 @@ const GAME_EXERCISE_LINES = `
 
 const FOLLOW_GAME_PGN_RECORDS = [
   {
-    title: 'Morphy vs Duke Karl / Count Isouard (Opera Game)',
+    title: 'Morphy vs Duke Karl (Opera Game)',
     source: 'https://www.pgnmentor.com/players/Morphy.zip',
     pgn: `[Event "Paris it"]
 [Site "Paris"]
