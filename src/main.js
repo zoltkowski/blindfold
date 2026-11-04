@@ -1871,6 +1871,7 @@ function syncViewModeClasses() {
       || isBlindMattingModeValue(state.blindPuzzles.mode));
   document.body.classList.toggle('game-default-view', isDefaultGameView);
   document.body.classList.toggle('puzzle-mode', isPuzzleView);
+  document.body.classList.toggle('follow-mode', state.sessionMode === 'follow-game');
   document.body.classList.toggle('follow-browse-mode', state.sessionMode === 'follow-game' && state.followGame.mode === 'browse' && !!state.followGame.current);
   document.body.classList.toggle('blind-mode', isBlindView);
   document.body.classList.toggle('blind-position-mode', isBlindPositionView);
@@ -7509,8 +7510,7 @@ function updateMainControlsVisibility() {
   const inBlind = state.sessionMode === 'blind-puzzles';
   const inFollow = state.sessionMode === 'follow-game';
   const blindStructuredLastMove = isBlindStructuredLastMoveMode();
-  const hideDisplayMode = inPuzzle
-    || (inBlind && state.blindPuzzles.mode === 'square-colors')
+  const hideDisplayMode = (inBlind && state.blindPuzzles.mode === 'square-colors')
     || isPositionRecallMode();
   const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();

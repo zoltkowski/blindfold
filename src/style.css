@@ -1024,11 +1024,15 @@ body.follow-browse-mode #lastMoveRow {
     height: 100dvh;
   }
 
-  body.game-default-view .layout {
+  body.game-default-view .layout,
+  body.follow-mode .layout,
+  body.puzzle-mode .layout {
     gap: 0.2rem;
   }
 
-  body.game-default-view .right-col {
+  body.game-default-view .right-col,
+  body.follow-mode .right-col,
+  body.puzzle-mode .right-col {
     padding-top: 0.35rem;
   }
 
@@ -1268,19 +1272,15 @@ body.follow-browse-mode #lastMoveRow {
     margin-top: 2.9rem !important;
   }
 
+  body.game-default-view .layout,
+  body.follow-mode .layout,
   body.puzzle-mode .layout {
-    gap: 0.12rem;
-  }
-
-  body.puzzle-mode .right-col {
-    padding-top: 0.15rem;
-  }
-
-  body.game-default-view .layout {
     gap: 0.05rem;
   }
 
-  body.game-default-view .right-col {
+  body.game-default-view .right-col,
+  body.follow-mode .right-col,
+  body.puzzle-mode .right-col {
     padding-top: 0.05rem;
   }
 
