@@ -77,6 +77,12 @@ select,
   touch-action: none;
 }
 
+#board coords.squares coord {
+  display: flex;
+  align-items: flex-end;
+  padding: 2px 4px;
+}
+
 .board-shell.is-hidden {
   visibility: hidden;
 }
