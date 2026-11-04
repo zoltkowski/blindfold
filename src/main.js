@@ -6033,12 +6033,16 @@ function puzzleReviewEndPly() {
   return Math.max(puzzleProgressAbsPly(), state.puzzle?.startPly ?? 0);
 }
 
+function puzzleSolutionRevealed(puzzle = state.puzzle) {
+  return !!puzzle && (puzzle.solved || puzzle.revealSolutionText);
+}
+
 function puzzleReviewStartPly() {
   const puzzle = state.puzzle;
   if (!puzzle) {
     return 0;
   }
-  return puzzle.solved ? 0 : puzzle.contextStartPly;
+  return puzzleSolutionRevealed(puzzle) ? 0 : puzzle.contextStartPly;
 }
 
 function puzzleStepForward() {
@@ -7229,9 +7233,10 @@ function updateMovesList() {
     const puzzle = state.puzzle;
     const solvedSolutionCount = Math.max(0, puzzle.solutionIndex - puzzle.contextMoves.length);
     const solvedSolutionSans = puzzle.solutionSans.slice(0, solvedSolutionCount);
-    const prefix = puzzle.solved ? puzzle.prefixSans : [];
+    const revealed = puzzleSolutionRevealed(puzzle);
+    const prefix = revealed ? puzzle.prefixSans : [];
     hist = [...prefix, ...puzzle.contextSans, ...solvedSolutionSans];
-    startPly = puzzle.solved ? 0 : puzzle.contextStartPly;
+    startPly = revealed ? 0 : puzzle.contextStartPly;
     viewedPly = state.puzzleViewIndex;
   } else if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
     const prefixSans = gameDrillPrefixMoves().map((mv) => mv.san);
@@ -7323,7 +7328,7 @@ function updateLastMove() {
     viewedPly = state.reviewPly ?? hist.length;
   }
 
-  if (state.sessionMode === 'puzzle' && state.puzzle && !state.puzzle.solved
+  if (state.sessionMode === 'puzzle' && state.puzzle && !puzzleSolutionRevealed(state.puzzle)
     && viewedPly <= state.puzzle.contextStartPly) {
     elements.lastMoveText.textContent = '';
     return;
