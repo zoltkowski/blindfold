@@ -137,6 +137,8 @@ app.innerHTML = `
               <input id="ttsMovePause" type="range" min="0" max="5000" step="250" value="250" />
             </label>
             <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
+            <button id="ttsTestVoicesBtn" type="button">Test Available Voices</button>
+            <div id="ttsTestStatus" class="muted" role="status"></div>
             <label>
               Puzzle Difficulty
               <select id="puzzleDifficulty">
@@ -390,6 +392,8 @@ const elements = {
   ttsMovePause: document.getElementById('ttsMovePause'),
   ttsMovePauseValue: document.getElementById('ttsMovePauseValue'),
   ttsSampleBtn: document.getElementById('ttsSampleBtn'),
+  ttsTestVoicesBtn: document.getElementById('ttsTestVoicesBtn'),
+  ttsTestStatus: document.getElementById('ttsTestStatus'),
   puzzlePanel: document.getElementById('puzzlePanel'),
   puzzleBacktrack: document.getElementById('puzzleBacktrack'),
   puzzleBacktrackValue: document.getElementById('puzzleBacktrackValue'),
@@ -494,6 +498,7 @@ const movementModeButtons = Array.from(document.querySelectorAll('[data-movement
 const movementPieceButtons = Array.from(document.querySelectorAll('[data-movement-piece]'));
 const followModeButtons = Array.from(document.querySelectorAll('[data-follow-mode]'));
 
+const TTS_VERIFIED_VOICES_KEY = 'blindfold_tts_verified_voices_v1';
 const SETTINGS_KEY = 'blindfold_chess_settings_v1';
 const POSITION_RECALL_SEEN_KEY = 'blind_position_recall_seen_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
@@ -1823,7 +1828,10 @@ function normalizeTtsText(text) {
     .trim();
 }
 
+let ttsVoiceTest = null;
+
 function cancelTtsPlayback() {
+  ttsVoiceTest?.abort();
   state.ttsSequenceToken += 1;
   if (typeof speechSynthesis !== 'undefined') {
     speechSynthesis.cancel();
@@ -1900,38 +1908,112 @@ function applyTtsOptions(utterance, lang) {
   utterance.lang = lang;
   utterance.rate = Math.max(0.1, Math.min(1.5, Number(state.ttsRate) || 1));
   const selectedVoice = findConfiguredTtsVoice();
-  if (selectedVoice) {
+  if (selectedVoice && ttsLanguage(selectedVoice.lang) === ttsLanguage(lang)) {
     utterance.voice = selectedVoice;
+    utterance.lang = selectedVoice.lang;
   }
 }
 
+function ttsLanguage(lang) {
+  return lang.toLowerCase().split('-')[0];
+}
+
+function ttsVoicesForLanguage(lang) {
+  return getAvailableTtsVoices()
+    .filter((voice) => ttsLanguage(voice.lang) === lang)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function populateTtsVoices() {
-  if (!(elements.ttsVoice instanceof HTMLSelectElement)) {
+  const select = elements.ttsVoice;
+  const lang = state.moveLanguage;
+  const verified = readLocalJson(TTS_VERIFIED_VOICES_KEY)?.[lang];
+  const available = ttsVoicesForLanguage(lang);
+  const voices = available.filter((voice) => verified?.includes(voice.voiceURI));
+  const options = [
+    ...(verified?.includes('') ? [{ voiceURI: '', name: 'System default' }] : []),
+    ...voices
+  ];
+  select.replaceChildren();
+  select.disabled = !options.length;
+  if (!options.length) {
+    select.add(new Option(verified?.length === 0 ? 'No voices passed' : 'Test available voices first', ''));
+    if (verified?.length === 0) state.ttsVoiceUri = '';
     return;
   }
-  const select = elements.ttsVoice;
-  const current = state.ttsVoiceUri;
-  const languagePrefix = state.moveLanguage === 'pl' ? 'pl' : 'en';
-  const voices = getAvailableTtsVoices()
-    .filter((voice) => String(voice.lang ?? '').toLowerCase().startsWith(languagePrefix))
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name));
-  select.innerHTML = '';
-  const defaultOpt = document.createElement('option');
-  defaultOpt.value = '';
-  defaultOpt.textContent = 'System default';
-  select.appendChild(defaultOpt);
-  for (const voice of voices) {
-    const opt = document.createElement('option');
-    opt.value = voice.voiceURI;
-    opt.textContent = `${voice.name} (${voice.lang})`;
-    select.appendChild(opt);
+  for (const voice of options) {
+    select.add(new Option(voice.lang ? voice.name + ' (' + voice.lang + ')' : voice.name, voice.voiceURI));
   }
-  const hasCurrent = !!voices.find((voice) => voice.voiceURI === current);
-  if (!hasCurrent) {
-    state.ttsVoiceUri = '';
+  if (!options.some((voice) => voice.voiceURI === state.ttsVoiceUri)) {
+    if (!available.length && verified.includes(state.ttsVoiceUri)) return;
+    state.ttsVoiceUri = options[0].voiceURI;
   }
-  select.value = hasCurrent ? current : '';
+  select.value = state.ttsVoiceUri;
+}
+
+function probeTtsVoice(voice, lang, signal) {
+  return new Promise((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(lang === 'pl' ? 'Test głosu' : 'Voice test');
+    utterance.lang = voice?.lang ?? (lang === 'pl' ? 'pl-PL' : 'en-US');
+    if (voice) utterance.voice = voice;
+    const finish = (success) => {
+      window.clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+      utterance.onend = null;
+      utterance.onerror = null;
+      resolve(success);
+    };
+    const abort = () => finish(false);
+    const timeout = window.setTimeout(() => {
+      finish(false);
+      speechSynthesis.cancel();
+    }, 5000);
+    signal.addEventListener('abort', abort, { once: true });
+    utterance.onend = () => finish(true);
+    utterance.onerror = abort;
+    try {
+      speechSynthesis.speak(utterance);
+    } catch (_error) {
+      finish(false);
+    }
+  });
+}
+
+async function testTtsVoices() {
+  if (typeof speechSynthesis === 'undefined') {
+    elements.ttsTestStatus.textContent = 'TTS is unavailable in this browser.';
+    return;
+  }
+  cancelTtsPlayback();
+  const test = new AbortController();
+  ttsVoiceTest = test;
+  const lang = state.moveLanguage;
+  const candidates = [null, ...ttsVoicesForLanguage(lang)];
+  const verified = [];
+  elements.ttsTestVoicesBtn.disabled = true;
+  state.speaking = true;
+  refreshVoiceListeningState();
+  for (const voice of candidates) {
+    elements.ttsTestStatus.textContent = 'Testing ' + (voice?.name ?? 'System default') + '…';
+    const success = await probeTtsVoice(voice, lang, test.signal);
+    if (test.signal.aborted) break;
+    if (success) verified.push(voice?.voiceURI ?? '');
+  }
+  ttsVoiceTest = null;
+  elements.ttsTestVoicesBtn.disabled = false;
+  if (test.signal.aborted) {
+    elements.ttsTestStatus.textContent = 'Voice test canceled.';
+    return;
+  }
+  state.speaking = false;
+  refreshVoiceListeningState();
+  const results = readLocalJson(TTS_VERIFIED_VOICES_KEY) ?? {};
+  writeLocalJson(TTS_VERIFIED_VOICES_KEY, { ...results, [lang]: verified });
+  populateTtsVoices();
+  writeSettings();
+  elements.ttsTestStatus.textContent = verified.length
+    ? verified.length + ' of ' + candidates.length + ' voices passed.'
+    : 'No voices passed the test.';
 }
 
 function stopStockfishWorker() {
@@ -5333,23 +5415,6 @@ function startPositionExercise() {
   setVoiceMode(false);
 }
 
-function speakGameTask(exercise) {
-  if (!exercise) {
-    return;
-  }
-  if (!elements.speakComputer.checked || typeof speechSynthesis === 'undefined') {
-    return;
-  }
-  if (state.speaking) {
-    cancelTtsPlayback();
-  }
-  const movesSpoken = (exercise.moveSans ?? [])
-    .map((san) => sanToPolishSpeech(san))
-    .filter(Boolean);
-  const side = exercise.turn === 'w' ? 'biale zaczynaja' : 'czarne zaczynaja';
-  speakTtsSequence([...movesSpoken, side], 'pl-PL');
-}
-
 function startGameExercise() {
   if (!state.gameExercises.length) {
     elements.statusText.textContent = 'No valid game exercises loaded.';
@@ -5741,41 +5806,34 @@ function pauseGameDrillReplayForManualReview() {
   state.blindPuzzles.gameDrillReplayPaused = true;
 }
 
-function scheduleGameDrillReplayTick() {
+function advanceGameDrillReplay() {
   if (!isGameDrillModeActive() || state.blindPuzzles.gameDrillReplayPaused) {
     return;
   }
-  const prefixTotal = gameDrillPrefixMoves().length;
-  if (prefixTotal <= 0) {
+  const moves = gameDrillPrefixMoves();
+  const viewed = state.reviewPly ?? moves.length;
+  if (viewed >= moves.length) {
     return;
   }
-  const viewed = state.reviewPly ?? prefixTotal;
-  if (viewed >= prefixTotal) {
+  if (state.speaking) {
+    scheduleGameDrillReplayTick(100);
     return;
   }
+  const next = viewed + 1;
+  state.reviewPly = next >= moves.length ? null : next;
+  speakMoveIfEnabled(moves[viewed].san);
+  if (next < moves.length) {
+    scheduleGameDrillReplayTick();
+  }
+  updateAll();
+}
+
+function scheduleGameDrillReplayTick(delay = gameDrillReplayDelayMs()) {
   clearGameDrillReplayTimer();
   state.blindPuzzles.gameDrillReplayTimerId = window.setTimeout(() => {
     state.blindPuzzles.gameDrillReplayTimerId = null;
-    if (!isGameDrillModeActive() || state.blindPuzzles.gameDrillReplayPaused) {
-      return;
-    }
-    const nextTotal = gameDrillPrefixMoves().length;
-    const nextViewed = state.reviewPly ?? nextTotal;
-    if (nextViewed >= nextTotal) {
-      state.reviewPly = null;
-      state.blindPuzzles.gameDrillReplayPaused = false;
-      updateAll();
-      return;
-    }
-    const next = nextViewed + 1;
-    state.reviewPly = next >= nextTotal ? null : next;
-    if (next >= nextTotal) {
-      state.blindPuzzles.gameDrillReplayPaused = false;
-    } else {
-      scheduleGameDrillReplayTick();
-    }
-    updateAll();
-  }, gameDrillReplayDelayMs());
+    advanceGameDrillReplay();
+  }, delay);
 }
 
 function startGameDrillReplay() {
@@ -5790,7 +5848,7 @@ function startGameDrillReplay() {
     return;
   }
   state.reviewPly = 0;
-  scheduleGameDrillReplayTick();
+  advanceGameDrillReplay();
 }
 
 function toggleGameDrillReplayPause() {
@@ -6911,20 +6969,9 @@ function speakMoveIfEnabled(moveSan) {
     cancelTtsPlayback();
   }
 
-  const utterance = new SpeechSynthesisUtterance(
-    state.moveLanguage === 'pl' ? sanToPolishSpeech(moveSan) : sanToEnglishSpeech(moveSan)
-  );
-  applyTtsOptions(utterance, state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US');
-  utterance.onstart = () => {
-    state.speaking = true;
-    refreshVoiceListeningState();
-  };
-  utterance.onend = () => {
-    state.speaking = false;
-    refreshVoiceListeningState();
-  };
-
-  speechSynthesis.speak(utterance);
+  const polish = state.moveLanguage === 'pl';
+  const spoken = polish ? sanToPolishSpeech(moveSan) : sanToEnglishSpeech(moveSan);
+  speakTtsSequence([spoken], polish ? 'pl-PL' : 'en-US');
 }
 
 function speakPuzzleSolvedIfEnabled() {
@@ -7907,6 +7954,7 @@ elements.boardReveal.addEventListener('input', () => {
 });
 
 elements.moveLanguage.addEventListener('change', () => {
+  if (ttsVoiceTest) cancelTtsPlayback();
   state.moveLanguage = elements.moveLanguage.value;
   updateMoveInputPlaceholder();
   syncMoveAssistPieces();
@@ -7991,6 +8039,7 @@ elements.ttsMovePause.addEventListener('input', () => {
   writeSettings();
 });
 
+elements.ttsTestVoicesBtn.addEventListener('click', testTtsVoices);
 elements.ttsSampleBtn.addEventListener('click', () => {
   playTtsSample();
 });
