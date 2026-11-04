@@ -53,7 +53,7 @@ app.innerHTML = `
             <option value="black-pieces-white-disks">Black Pieces, White Disks</option>
           </select>
         </label>
-        <label id="boardRevealRow">
+        <label id="boardRevealRow" hidden>
           <span class="engine-meta"><span id="boardRevealValue">Board reveal: after 1 move</span></span>
           <input id="boardReveal" type="range" min="1" max="33" step="1" value="1" />
         </label>
@@ -7334,7 +7334,7 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideDisplayMode;
   elements.displayModeRow.style.display = hideDisplayMode ? 'none' : '';
-  const showBoardRevealRow = !inPuzzle && !inBlind;
+  const showBoardRevealRow = !beforeGameStart && !inPuzzle && !inBlind;
   elements.boardRevealRow.hidden = !showBoardRevealRow;
   elements.boardRevealRow.style.display = showBoardRevealRow ? '' : 'none';
   const hideMoveInputs = beforeGameStart
