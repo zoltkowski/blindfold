@@ -349,30 +349,6 @@ button:hover {
   color: #5b5a55;
 }
 
-.follow-moves {
-  min-height: calc(1.35em * 3);
-}
-
-.follow-moves.last-move-text {
-  min-height: 1.9rem;
-}
-
-.follow-browse-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.follow-browse-actions > #reviewPlayBtn {
-  min-width: 7rem;
-}
-
-.follow-browse-actions > #reviewPrevBtn svg,
-.follow-browse-actions > #reviewNextBtn svg {
-  display: block;
-  pointer-events: none;
-}
-
 .blind-panel {
   border: none;
 }
@@ -1250,16 +1226,19 @@ body.status-replaced-by-lastmove #lastMoveRow {
     padding-right: 0;
   }
 
-  body.puzzle-mode #statusRow {
+  body.puzzle-mode #statusRow,
+  body.follow-browse-mode #statusRow {
     margin-top: 0.8rem !important;
     padding-right: 5.9rem !important;
   }
 
-  body.puzzle-mode #movesPanel {
+  body.puzzle-mode #movesPanel,
+  body.follow-browse-mode #movesPanel {
     margin-top: 0.55rem !important;
   }
 
-  body.puzzle-mode #toggleMovesBtn {
+  body.puzzle-mode #toggleMovesBtn,
+  body.follow-browse-mode #toggleMovesBtn {
     margin-top: -2.6rem !important;
     margin-bottom: 0.4rem;
   }
@@ -1273,7 +1252,8 @@ body.status-replaced-by-lastmove #lastMoveRow {
     margin-bottom: 0.4rem;
   }
 
-  body.puzzle-mode .review-nav {
+  body.puzzle-mode .review-nav,
+  body.follow-browse-mode .review-nav {
     margin-top: 2.9rem !important;
   }
 

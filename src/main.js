@@ -204,9 +204,6 @@ app.innerHTML = `
           </div>
         </div>
         <div id="followGameMeta" class="follow-meta" hidden>-</div>
-        <div id="followGameMoves" class="follow-moves"></div>
-        <div id="followBrowseActions" class="follow-browse-actions">
-        </div>
       </div>
 
       <div id="blindOptionsModal" class="config-modal" role="dialog" aria-modal="true" aria-labelledby="blindOptionsTitle" hidden>
@@ -475,8 +472,6 @@ const elements = {
   followQuizExitBtn: document.getElementById('followQuizExitBtn'),
   followGameTitle: document.getElementById('followGameTitle'),
   followGameMeta: document.getElementById('followGameMeta'),
-  followGameMoves: document.getElementById('followGameMoves'),
-  followBrowseActions: document.getElementById('followBrowseActions'),
   loadPuzzleBtn: document.getElementById('loadPuzzleBtn'),
   blindPuzzlesBtn: document.getElementById('blindPuzzlesBtn'),
   openPuzzleLinkBtn: document.getElementById('openPuzzleLinkBtn'),
@@ -1876,6 +1871,7 @@ function syncViewModeClasses() {
       || isBlindMattingModeValue(state.blindPuzzles.mode));
   document.body.classList.toggle('game-default-view', isDefaultGameView);
   document.body.classList.toggle('puzzle-mode', isPuzzleView);
+  document.body.classList.toggle('follow-browse-mode', state.sessionMode === 'follow-game' && state.followGame.mode === 'browse' && !!state.followGame.current);
   document.body.classList.toggle('blind-mode', isBlindView);
   document.body.classList.toggle('blind-position-mode', isBlindPositionView);
   document.body.classList.toggle('blind-structured-mode', isBlindStructuredView);
@@ -3332,8 +3328,6 @@ function updateFollowPanel() {
     elements.followGameSelect.innerHTML = '';
     elements.followGameTitle.textContent = '-';
     elements.followGameMeta.textContent = '-';
-    elements.followGameMoves.textContent = '';
-    elements.followBrowseActions.hidden = false;
     elements.followRestartBtn.disabled = true;
     return;
   }
@@ -3350,12 +3344,9 @@ function updateFollowPanel() {
   const hasLoadedGame = !!current;
   elements.followGamePickerRow.hidden = hasLoadedGame;
   elements.followGamePickerActions.hidden = hasLoadedGame;
-  elements.followBrowseActions.hidden = !hasLoadedGame || state.followGame.mode === 'quiz';
-  elements.followGameMoves.hidden = state.followGame.mode === 'quiz';
   if (!current) {
-    elements.followGameTitle.textContent = 'No follow game selected.';
+    elements.followGameTitle.textContent = '';
     elements.followGameMeta.textContent = '-';
-    elements.followGameMoves.textContent = '';
     elements.followRestartBtn.disabled = true;
     return;
   }
@@ -3381,16 +3372,6 @@ function updateFollowPanel() {
   }
   elements.followGameTitle.textContent = followGameDisplayTitle(current);
   elements.followGameMeta.textContent = metaParts.join(' - ');
-
-  elements.followGameMoves.classList.add('last-move-text');
-  elements.followGameMoves.textContent = '';
-  if (shownPlies <= 0) {
-    elements.followGameMoves.textContent = '';
-  } else {
-    const lastSan = current.moveSans[shownPlies - 1] ?? '';
-    const rendered = formatSanForDisplay(lastSan);
-    elements.followGameMoves.textContent = shownPlies % 2 === 0 ? `... ${rendered}` : rendered;
-  }
 
 }
 
@@ -5645,7 +5626,7 @@ function startFollowGame() {
   state.puzzleViewIndex = 0;
   state.puzzleLastAttempt = null;
   state.revealPosition = false;
-  state.followGame.mode = normalizeFollowMode(state.followGame.mode);
+  state.followGame.mode = 'browse';
   state.userColor = 'white';
   if (!state.followGame.selectedId && state.followGame.games.length) {
     state.followGame.selectedId = String(state.followGame.games[0].id);
@@ -6375,18 +6356,14 @@ function updateReviewControls() {
   elements.followQuizActions.hidden = !inFollowQuiz;
   elements.followQuizHintBtn.disabled = !isFollowQuizPlayable()
     || isFollowQuizAutoTurn() || state.followGame.quizEvaluating;
-  reviewNav.hidden = inFollow;
+  reviewNav.hidden = inFollow && (!state.followGame.current || inFollowQuiz);
   if (inFollow) {
-    const actions = elements.followBrowseActions;
-    if (reviewPlayBtn.parentElement !== actions) {
-      actions.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn);
-    }
     if (inFollowQuiz) {
       if (toggleMovesBtn.parentElement !== elements.followQuizActions) {
         elements.followQuizActions.prepend(toggleMovesBtn);
       }
-    } else if (toggleMovesBtn.parentElement !== actions) {
-      actions.append(toggleMovesBtn);
+    } else if (toggleMovesBtn.parentElement !== movesPanel) {
+      movesPanel.prepend(toggleMovesBtn);
     }
     const browsing = state.followGame.mode === 'browse' && !!state.followGame.current;
     const viewed = state.followGame.shownPlies;
@@ -6400,6 +6377,8 @@ function updateReviewControls() {
   }
   if (reviewPlayBtn.parentElement !== reviewNav) {
     reviewNav.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn);
+  }
+  if (toggleMovesBtn.parentElement !== movesPanel) {
     movesPanel.prepend(toggleMovesBtn);
   }
   if (isGameDrillModeActive()) {
@@ -7554,7 +7533,7 @@ function updateMainControlsVisibility() {
     || (inBlind && !inBlindVoiceControls)
     || (inFollow && !inFollowQuiz);
   elements.moveInputs.hidden = hideMoveInputs;
-  elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider;
+  elements.movesPanel.hidden = (inBlind && !inBlindGame) || hideBelowSlider || (inFollow && !state.followGame.current);
   const hasLastMoveText = !!(elements.lastMoveText.textContent ?? '').trim();
   const gameDrillTotal = inGameDrill ? gameDrillTotalPlies() : 0;
   const gameDrillViewed = inGameDrill ? (state.reviewPly ?? gameDrillTotal) : 0;
@@ -7574,7 +7553,8 @@ function updateMainControlsVisibility() {
     && hasLastMoveText;
   const showLastMoveRowInBlind = blindHasPlayedMoves && hasLastMoveText;
   const showLastMoveRowInPuzzle = inPuzzle && hasLastMoveText;
-  elements.lastMoveRow.hidden = hideBelowSlider || !(showLastMoveRowInGame || showLastMoveRowInBlind || showLastMoveRowInPuzzle);
+  const showLastMoveRowInFollow = inFollow && !inFollowQuiz && hasLastMoveText;
+  elements.lastMoveRow.hidden = hideBelowSlider || !(showLastMoveRowInGame || showLastMoveRowInBlind || showLastMoveRowInPuzzle || showLastMoveRowInFollow);
   const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
   document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
   const newGamePending = state.sessionMode === 'game' && !state.gameStarted && !hideBelowSlider;
@@ -7584,6 +7564,7 @@ function updateMainControlsVisibility() {
       (state.sessionMode === 'game' && state.gameStarted && hasLastMoveText)
       || (blindStructuredLastMove && hasLastMoveText)
       || (showLastMoveRowInPuzzle && !state.puzzle?.solved)
+      || showLastMoveRowInFollow
     );
   elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
   document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
