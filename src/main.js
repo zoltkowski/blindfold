@@ -839,6 +839,7 @@ const state = {
     attemptedEntries: [],
     movementVariant: 'edge',
     movementPiece: 'B',
+    movementPosition: null,
     routeTask: null,
     positionRecallStage: 'idle',
     positionRecallShowTimerId: null,
@@ -2159,6 +2160,7 @@ function updateBoard() {
     && state.blindPuzzles.mode === 'square-colors'
     && boardRevealActive;
   const recall = isPositionRecallMode();
+  const movements = state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'movements';
   const boardHidden = recall
     ? state.blindPuzzles.positionRecallStage === 'hide'
     : !boardRevealActive && (state.sessionMode === 'blind-puzzles' || state.displayMode === 'no-board');
@@ -2189,6 +2191,16 @@ function updateBoard() {
       pieces = new Map();
     }
   }
+  if (movements) {
+    pieces = new Map();
+    const position = state.blindPuzzles.movementPosition;
+    if (boardRevealActive && position) {
+      pieces.set(position.from, { color: 'white', role: position.role });
+      if (position.king) {
+        pieces.set(position.king, { color: 'black', role: 'king' });
+      }
+    }
+  }
   if (squareColorHeatmapActive) {
     pieces = new Map();
   }
@@ -2201,7 +2213,7 @@ function updateBoard() {
     : (reviewLocked
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
-  const boardInputEnabled = (followMode || isPositionRecallMode())
+  const boardInputEnabled = (followMode || recall || movements)
     ? false
     : (state.sessionMode !== 'game' || state.gameStarted);
   const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
@@ -2365,9 +2377,13 @@ function syncBlindClickDots() {
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors'
     && state.revealPosition;
+  const routeTarget = state.sessionMode === 'blind-puzzles'
+    && state.blindPuzzles.mode === 'movements'
+    && state.revealPosition ? state.blindPuzzles.routeTask?.to : null;
   const customHighlights = squareColorHeatmapActive
     ? squareColorHeatmapHighlights()
-    : (suppressVisualMarks ? new Map() : blindSourceHighlightMap());
+    : (routeTarget ? new Map([[routeTarget, 'last-move']])
+      : (suppressVisualMarks ? new Map() : blindSourceHighlightMap()));
   ground.set({
     highlight: {
       lastMove: !suppressVisualMarks,
@@ -3675,6 +3691,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.attemptedEntries = [];
   state.blindPuzzles.movementVariant = 'edge';
   state.blindPuzzles.movementPiece = 'B';
+  state.blindPuzzles.movementPosition = null;
   state.blindPuzzles.routeTask = null;
   state.blindPuzzles.positionRecallStage = 'idle';
   state.blindPuzzles.positionRecallTargetPieces = [];
@@ -4873,6 +4890,7 @@ function pickRandomSquareByParity(parity, excludeSquare = '') {
 function askNextBishopEdgeQuestion() {
   const sq = randomInnerSquare();
   state.blindPuzzles.movementPiece = 'B';
+  state.blindPuzzles.movementPosition = { from: sq, role: 'bishop' };
   state.blindPuzzles.currentSquare = `${pieceSymbol('B')}${sq}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(bishopEdgeSquares(sq));
@@ -4889,6 +4907,7 @@ function askNextBishopRouteQuestion() {
   const to = pickRandomSquareByParity(squareColorParity(from), from);
   const shortest = shortestRouteLength('B', from, to);
   state.blindPuzzles.movementPiece = 'B';
+  state.blindPuzzles.movementPosition = { from, role: 'bishop' };
   state.blindPuzzles.currentSquare = `${pieceSymbol('B')}${from} -> ${to}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set();
@@ -4919,6 +4938,7 @@ function askNextKnightEdgeQuestion() {
   const sq = randomSquare();
   const targets = knightSquares(sq);
   state.blindPuzzles.movementPiece = 'N';
+  state.blindPuzzles.movementPosition = { from: sq, role: 'knight' };
   state.blindPuzzles.currentSquare = `${pieceSymbol('N')}${sq}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(targets);
@@ -4938,6 +4958,7 @@ function askNextKnightRouteQuestion() {
   const to = candidates[Math.floor(Math.random() * candidates.length)] ?? from;
   const shortest = shortestRouteLength('N', from, to);
   state.blindPuzzles.movementPiece = 'N';
+  state.blindPuzzles.movementPosition = { from, role: 'knight' };
   state.blindPuzzles.currentSquare = `${pieceSymbol('N')}${from} -> ${to}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set();
@@ -4973,6 +4994,7 @@ function askNextMovementQuestion() {
     askNextBishopQuestion();
   }
   updateSquareColorControlsVisibility();
+  if (state.revealPosition) updateBoard();
 }
 
 function askNextCheckQuestion() {
@@ -4992,6 +5014,7 @@ function askNextCheckQuestion() {
     !kingsAdjacent(to, king) && attacksKing(to, role, king)
   );
 
+  state.blindPuzzles.movementPosition = { from, king, role: { R: 'rook', N: 'knight', B: 'bishop', Q: 'queen' }[role] };
   state.blindPuzzles.currentSquare = `♚${king} ${pieceSymbol(role)}${from}`;
   state.blindPuzzles.currentAnswer = '';
   state.blindPuzzles.expectedSquares = new Set(candidates);
