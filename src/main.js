@@ -2159,7 +2159,7 @@ function isBoardRevealActive() {
 }
 
 function boardGameForDisplayedPieces(boardGame) {
-  if (state.sessionMode === 'follow-game' && state.followGame.mode === 'quiz') {
+  if (state.sessionMode === 'follow-game') {
     if (state.revealPosition) {
       return boardGame;
     }
@@ -2173,7 +2173,7 @@ function boardGameForDisplayedPieces(boardGame) {
     }
     const totalPlies = current.moveVerbose.length;
     const shownPlies = Math.max(0, Math.min(totalPlies, Math.floor(Number(state.followGame.shownPlies) || 0)));
-    const startPlyRaw = Math.floor(Number(state.followGame.quizStartPly) || 0);
+    const startPlyRaw = state.followGame.mode === 'quiz' ? state.followGame.quizStartPly : 0;
     const startPly = Math.max(0, Math.min(shownPlies, startPlyRaw));
     const revealPlies = shownPlies - startPly;
     const revealedPlies = startPly + (Math.floor(revealPlies / interval) * interval);
@@ -7246,7 +7246,7 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle' || isUserTurn());
   elements.displayModeRow.hidden = hideDisplayMode;
   elements.displayModeRow.style.display = hideDisplayMode ? 'none' : '';
-  const showBoardRevealRow = !inPuzzle && !inBlind && (!inFollow || state.followGame.mode === 'quiz');
+  const showBoardRevealRow = !inPuzzle && !inBlind;
   elements.boardRevealRow.hidden = !showBoardRevealRow;
   elements.boardRevealRow.style.display = showBoardRevealRow ? '' : 'none';
   const hideMoveInputs = beforeGameStart
