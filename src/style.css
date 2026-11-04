@@ -203,6 +203,15 @@ label {
   gap: 0.5rem;
 }
 
+.config-utility-row {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.config-utility-label {
+  font-size: 0.95rem;
+}
+
 .toggle-option-row {
   gap: 0.45rem;
 }

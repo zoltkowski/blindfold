@@ -73,6 +73,10 @@ app.innerHTML = `
                 <option value="en">English Notation</option>
               </select>
             </label>
+            <div class="config-utility-row">
+              <span class="config-utility-label">Voice recognition</span>
+              <button id="voiceTestBtn" type="button">Test Voice Input</button>
+            </div>
 
             <label>
               <span class="engine-meta"><span>Maia 3 rating</span>: <span id="optionStrengthValue">1700</span></span>
@@ -413,6 +417,7 @@ const elements = {
   boardReveal: document.getElementById('boardReveal'),
   boardRevealValue: document.getElementById('boardRevealValue'),
   moveLanguage: document.getElementById('moveLanguage'),
+  voiceTestBtn: document.getElementById('voiceTestBtn'),
   optionEngineStrength: document.getElementById('optionEngineStrength'),
   optionStrengthValue: document.getElementById('optionStrengthValue'),
   speakComputer: document.getElementById('speakComputer'),
@@ -6013,7 +6018,7 @@ function showPuzzleSolution() {
 }
 
 function puzzleStepBack() {
-  if (!state.puzzle || state.puzzleAutoPlaying || state.puzzleViewIndex <= 0) {
+  if (!state.puzzle || state.puzzleAutoPlaying || state.puzzleViewIndex <= puzzleReviewStartPly()) {
     return;
   }
   state.puzzleViewIndex -= 1;
@@ -6026,6 +6031,14 @@ function puzzleStepBack() {
 
 function puzzleReviewEndPly() {
   return Math.max(puzzleProgressAbsPly(), state.puzzle?.startPly ?? 0);
+}
+
+function puzzleReviewStartPly() {
+  const puzzle = state.puzzle;
+  if (!puzzle) {
+    return 0;
+  }
+  return puzzle.solved ? 0 : puzzle.contextStartPly;
 }
 
 function puzzleStepForward() {
@@ -6115,8 +6128,9 @@ function reviewJumpFirst() {
     if (!state.puzzle || state.puzzleAutoPlaying) {
       return;
     }
+    const startPly = puzzleReviewStartPly();
     const progressAbsPly = puzzleReviewEndPly();
-    state.puzzleViewIndex = progressAbsPly > 0 ? 1 : 0;
+    state.puzzleViewIndex = progressAbsPly > startPly ? startPly + 1 : startPly;
     if (!syncPuzzleGameToView()) {
       elements.statusText.textContent = 'Cannot navigate puzzle move list.';
       return;
@@ -6241,7 +6255,7 @@ function jumpToMovePly(absPly) {
       return;
     }
     const progressAbsPly = puzzleReviewEndPly();
-    const bounded = Math.max(0, Math.min(progressAbsPly, absPly + 1));
+    const bounded = Math.max(puzzleReviewStartPly(), Math.min(progressAbsPly, absPly + 1));
     state.puzzleViewIndex = bounded;
     if (!syncPuzzleGameToView()) {
       elements.statusText.textContent = 'Cannot navigate puzzle move list.';
@@ -6301,6 +6315,14 @@ function reviewPlaybackPosition() {
   return { viewed, total: history.length, san: history[viewed] };
 }
 
+function finishReviewPlayback() {
+  stopReviewPlayback();
+  if (state.sessionMode === 'puzzle') {
+    elements.lastMoveText.textContent = '';
+    updateMainControlsVisibility();
+  }
+}
+
 function advanceReviewPlayback() {
   if (!reviewPlaybackActive) return;
   if (state.speaking) {
@@ -6309,14 +6331,12 @@ function advanceReviewPlayback() {
   }
   const { viewed, total, san } = reviewPlaybackPosition();
   if (!san || (state.sessionMode === 'puzzle' && state.puzzleAutoPlaying)) {
-    stopReviewPlayback();
-    updateReviewControls();
+    finishReviewPlayback();
     return;
   }
   reviewStepForward();
   if (reviewPlaybackPosition().viewed === viewed) {
-    stopReviewPlayback();
-    updateReviewControls();
+    finishReviewPlayback();
     return;
   }
   speakMoveIfEnabled(san);
@@ -6341,13 +6361,14 @@ function handleReviewPlay() {
   }
   const { viewed, total } = reviewPlaybackPosition();
   if (!total) return;
-  if (viewed >= total) {
-    if (state.sessionMode === 'puzzle') {
-      state.puzzleViewIndex = 0;
+  if (state.sessionMode === 'puzzle') {
+    const startPly = puzzleReviewStartPly();
+    if (viewed >= total || state.puzzleViewIndex < startPly) {
+      state.puzzleViewIndex = startPly;
       if (!syncPuzzleGameToView()) return;
-    } else {
-      state.reviewPly = 0;
     }
+  } else if (viewed >= total) {
+    state.reviewPly = 0;
   }
   reviewPlaybackActive = true;
   updateReviewControls();
@@ -6403,7 +6424,8 @@ function updateReviewControls() {
 
   const { viewed, total } = reviewPlaybackPosition();
   const solutionPlaying = state.sessionMode === 'puzzle' && state.puzzleAutoPlaying;
-  reviewPrevBtn.disabled = solutionPlaying || viewed <= 0;
+  const puzzleMinPly = state.sessionMode === 'puzzle' ? puzzleReviewStartPly() : 0;
+  reviewPrevBtn.disabled = solutionPlaying || viewed <= puzzleMinPly;
   reviewNextBtn.disabled = solutionPlaying || viewed >= total;
   reviewPlayBtn.disabled = solutionPlaying || !total;
   reviewPlayBtn.textContent = reviewPlaybackActive ? 'Pause' : (total && viewed >= total ? 'Replay' : 'Play');
@@ -6428,6 +6450,54 @@ function normalizePromotionSansWithoutEquals(moveRaw) {
     return raw;
   }
   return `${m[1]}=${m[2]}${m[3]}`;
+}
+
+function looksLikeShortPawnCaptureShorthand(moveRaw) {
+  const raw = String(moveRaw ?? '').trim().replace(/\s+/g, '').replace(/[+#]/g, '');
+  return /^[a-h]x?[a-h]$/i.test(raw);
+}
+
+function normalizeSpokenMoveText(rawText, moveLanguage) {
+  let move = String(rawText ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  const spoken = move
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  if (moveLanguage === 'pl') {
+    move = spoken
+      .replace(/^skoczek\s+/, 'S')
+      .replace(/^goniec\s+/, 'G')
+      .replace(/^wieza\s+/, 'W')
+      .replace(/^hetman\s+/, 'H')
+      .replace(/^krolowa\s+/, 'H')
+      .replace(/^krol\s+/, 'K')
+      .replace(/^pion(?:ek)?\s+/, '');
+    move = move
+      .replace(/=\s*skoczek\b/g, '=S')
+      .replace(/=\s*goniec\b/g, '=G')
+      .replace(/=\s*wieza\b/g, '=W')
+      .replace(/=\s*hetman\b/g, '=H')
+      .replace(/=\s*krolowa\b/g, '=H');
+    return move;
+  }
+
+  move = spoken
+    .replace(/^knight\s+/, 'N')
+    .replace(/^bishop\s+/, 'B')
+    .replace(/^rook\s+/, 'R')
+    .replace(/^queen\s+/, 'Q')
+    .replace(/^king\s+/, 'K')
+    .replace(/^pawn\s+/, '');
+  move = move
+    .replace(/=\s*knight\b/g, '=N')
+    .replace(/=\s*bishop\b/g, '=B')
+    .replace(/=\s*rook\b/g, '=R')
+    .replace(/=\s*queen\b/g, '=Q');
+  return move;
 }
 
 function normalizeMoveInput(inputRaw) {
@@ -6461,8 +6531,9 @@ function normalizeMoveInput(inputRaw) {
   }
 
   if (state.moveLanguage === 'pl') {
+    const shortPawnCapture = looksLikeShortPawnCaptureShorthand(move);
     move = normalizePolishFigureWords(move);
-    if (!looksLikePawnSanInput(move)) {
+    if (!shortPawnCapture && !looksLikePawnSanInput(move)) {
       move = move
         .replace(/^([khwgs])/i, (_m, p1) => p1.toUpperCase());
       move = polishToEnglishSan(move);
@@ -6590,7 +6661,8 @@ function findLooseExpectedPuzzleMove(text) {
 }
 
 function normalizeVoiceMoveForHandling(rawText) {
-  const parsed = normalizeMoveInput(String(rawText ?? '').trim());
+  const spokenInput = normalizeSpokenMoveText(rawText, state.moveLanguage);
+  const parsed = normalizeMoveInput(spokenInput);
   if (parsed.type === 'san') {
     return {
       input: parsed.value,
@@ -7251,6 +7323,12 @@ function updateLastMove() {
     viewedPly = state.reviewPly ?? hist.length;
   }
 
+  if (state.sessionMode === 'puzzle' && state.puzzle && !state.puzzle.solved
+    && viewedPly <= state.puzzle.contextStartPly) {
+    elements.lastMoveText.textContent = '';
+    return;
+  }
+
   const boundedViewed = Math.max(0, Math.min(hist.length, viewedPly));
   const last = boundedViewed > 0 ? hist[boundedViewed - 1] : null;
   if (!last) {
@@ -7561,6 +7639,19 @@ function updateMoveInputPlaceholder() {
   elements.moveInput.placeholder = state.moveLanguage === 'pl'
     ? 'Wpisz ruch (np. Sf3 albo e2e4)'
     : 'Enter move (e.g. Nf3 or e2e4)';
+}
+
+function openVoiceTestWindow() {
+  const lang = state.moveLanguage === 'en' ? 'en' : 'pl';
+  const voiceTestUrl = new URL('/voice-test.html', window.location.href);
+  voiceTestUrl.searchParams.set('lang', lang);
+  voiceTestUrl.searchParams.set('figurines', elements.figurineNotation.checked ? '1' : '0');
+  const opened = window.open(voiceTestUrl.toString(), 'blindfoldVoiceTest', 'popup=yes,width=540,height=760');
+  if (!opened) {
+    elements.statusText.textContent = 'Voice test window was blocked. Allow pop-ups and try again.';
+    return;
+  }
+  opened.focus();
 }
 
 function playTtsSample() {
@@ -8066,6 +8157,10 @@ elements.moveLanguage.addEventListener('change', () => {
     stopVoiceListening({ hardReset: true });
     scheduleVoiceListeningRestart(180);
   }
+});
+
+elements.voiceTestBtn.addEventListener('click', () => {
+  openVoiceTestWindow();
 });
 
 elements.figurineNotation.addEventListener('change', () => {

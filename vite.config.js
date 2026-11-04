@@ -1,11 +1,20 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve } from 'node:path';
 
 export default defineConfig({
   resolve: {
     alias: [{ find: /^onnxruntime-web$/, replacement: 'onnxruntime-web/wasm' }]
   },
   worker: { format: 'es' },
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        voiceTest: resolve(__dirname, 'voice-test.html')
+      }
+    }
+  },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
