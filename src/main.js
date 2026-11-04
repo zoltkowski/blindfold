@@ -3160,9 +3160,7 @@ async function evaluateAndSetFollowQuizFeedback(fenBefore, guessedUci, token) {
   }
   state.followGame.quizEvaluating = false;
   state.followGame.quizFeedback = followQuizFeedbackFromQuality(quality);
-  updateFollowPanel();
-  updateStatus();
-  refreshVoiceListeningState();
+  updateAll();
 }
 
 function applyFollowQuizUserMove(text) {
@@ -3198,6 +3196,15 @@ function applyFollowQuizUserMove(text) {
   const rootFen = state.game.fen();
   const isExact = guessedUci === expectedUci;
 
+  if (!isExact) {
+    state.followGame.quizEvaluating = true;
+    state.followGame.quizFeedback = 'Sprawdzam ruch w Stockfish...';
+    const token = ++state.followGame.quizEvalToken;
+    void evaluateAndSetFollowQuizFeedback(rootFen, guessedUci, token);
+    updateAll();
+    return false;
+  }
+
   const applied = applyFollowExpectedMove();
   if (!applied) {
     elements.statusText.textContent = 'Cannot continue quiz from game line.';
@@ -3206,14 +3213,7 @@ function applyFollowQuizUserMove(text) {
     return false;
   }
 
-  if (isExact) {
-    state.followGame.quizFeedback = `Poprawnie: ${formatSanForDisplay(expected.san)}.`;
-  } else {
-    state.followGame.quizEvaluating = true;
-    state.followGame.quizFeedback = 'Sprawdzam ruch w Stockfish...';
-    const token = ++state.followGame.quizEvalToken;
-    void evaluateAndSetFollowQuizFeedback(rootFen, guessedUci, token);
-  }
+  state.followGame.quizFeedback = `Poprawnie: ${formatSanForDisplay(expected.san)}.`;
 
   followQuizAutoplayIfNeeded();
   followQuizFinishIfDone();
