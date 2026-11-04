@@ -870,7 +870,6 @@ const state = {
     bestTotalMsByCount: {},
     bestAvgMsGte20: null
   },
-  prePuzzleDisplayMode: null,
   puzzleViewIndex: 0,
   puzzleRevealPrevView: null,
   reviewPly: null,
@@ -2140,7 +2139,7 @@ function isAutoBoardRevealNow() {
   if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()) {
     return false;
   }
-  if (state.displayMode === 'normal-pieces') {
+  if (state.displayMode !== 'no-board') {
     return false;
   }
   const interval = normalizedBoardRevealEvery();
@@ -2150,8 +2149,8 @@ function isAutoBoardRevealNow() {
   if (!isUserTurn()) {
     return false;
   }
-  const nextPlayerMove = countPlayerMovesPlayed() + 1;
-  return nextPlayerMove % interval === 0;
+  const played = countPlayerMovesPlayed();
+  return played > 0 && played % interval === 0;
 }
 
 function isBoardRevealActive() {
@@ -2222,53 +2221,28 @@ function boardGameForDisplayedPieces(boardGame) {
   return setGameFromVerboseMoves(verbose, shownPlies) ?? boardGame;
 }
 
-function transformPiecesForDisplay(realPieces) {
-  if (isBoardRevealActive() && state.sessionMode !== 'blind-puzzles') {
-    return realPieces;
+function transformPiecesForDisplay(pieces) {
+  switch (state.displayMode) {
+    case 'no-pieces':
+      return new Map();
+    case 'same-pieces':
+      return new Map([...pieces].map(([square, piece]) => [square, { ...piece, color: 'white' }]));
+    case 'white-only':
+      return new Map([...pieces].filter(([, piece]) => piece.color === 'white'));
+    case 'black-only':
+      return new Map([...pieces].filter(([, piece]) => piece.color === 'black'));
+    default:
+      return pieces;
   }
-
-  const transformed = new Map();
-  if (state.displayMode === 'no-pieces') {
-    return transformed;
-  }
-
-  for (const [square, piece] of realPieces.entries()) {
-    if (state.displayMode === 'normal-pieces') {
-      transformed.set(square, piece);
-    } else if (state.displayMode === 'same-pieces') {
-      transformed.set(square, { color: 'white', role: piece.role });
-    } else if (state.displayMode === 'different-disks') {
-      transformed.set(square, piece);
-    } else if (state.displayMode === 'same-disks') {
-      transformed.set(square, piece);
-    } else if (state.displayMode === 'white-only') {
-      if (piece.color === 'white') {
-        transformed.set(square, piece);
-      }
-    } else if (state.displayMode === 'black-only') {
-      if (piece.color === 'black') {
-        transformed.set(square, piece);
-      }
-    } else if (state.displayMode === 'white-pieces-black-disks') {
-      transformed.set(square, piece);
-    } else if (state.displayMode === 'black-pieces-white-disks') {
-      transformed.set(square, piece);
-    } else {
-      transformed.set(square, piece);
-    }
-  }
-
-  return transformed;
 }
 
 function updateBoard() {
-  elements.board.dataset.mode = state.displayMode;
+  const recall = isPositionRecallMode();
+  elements.board.dataset.mode = recall ? 'normal-pieces' : state.displayMode;
   const boardRevealActive = isBoardRevealActive();
-  elements.board.dataset.reveal = String(boardRevealActive);
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors'
     && boardRevealActive;
-  const recall = isPositionRecallMode();
   const movements = state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'movements';
   const boardHidden = recall
     ? state.blindPuzzles.positionRecallStage === 'hide'
@@ -2282,12 +2256,8 @@ function updateBoard() {
   const boardGameForPieces = boardGameForDisplayedPieces(boardGame);
   const reviewLocked = isReviewLocked();
   const followMode = state.sessionMode === 'follow-game';
-  const realPieces = fenToPieces(boardGameForPieces.fen());
-  const transformed = transformPiecesForDisplay(realPieces);
-  let pieces = transformed instanceof Map
-    ? transformed
-    : new Map(Object.entries(transformed ?? {}));
-  if (isPositionRecallMode()) {
+  let pieces = fenToPieces(boardGameForPieces.fen());
+  if (recall) {
     if (state.revealPosition || state.blindPuzzles.positionRecallStage === 'show') {
       const shown = new Map();
       for (const piece of state.blindPuzzles.positionRecallTargetPieces) {
@@ -2312,6 +2282,8 @@ function updateBoard() {
   }
   if (squareColorHeatmapActive) {
     pieces = new Map();
+  } else if (!recall) {
+    pieces = transformPiecesForDisplay(pieces);
   }
 
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
@@ -2439,9 +2411,6 @@ function isBlindClickInputActive() {
     return false;
   }
   if (!isUserTurn()) {
-    return false;
-  }
-  if (isBoardRevealActive()) {
     return false;
   }
   if (state.displayMode === 'no-pieces') {
@@ -3655,11 +3624,7 @@ async function loadLichessPuzzle() {
       verboseMoves: verbose
     };
     state.sessionMode = 'puzzle';
-    if (state.prePuzzleDisplayMode === null) {
-      state.prePuzzleDisplayMode = state.displayMode;
-    }
-    state.displayMode = 'normal-pieces';
-    elements.displayMode.value = state.displayMode;
+    state.revealPosition = false;
     state.boardOrientation = state.puzzleFixedOrientation
       ? 'white'
       : (state.puzzle.playerColor === 'b' ? 'black' : 'white');
@@ -3672,13 +3637,9 @@ async function loadLichessPuzzle() {
   } catch (error) {
     state.puzzleRevealPrevView = null;
     state.puzzleLastAttempt = null;
-    if (state.prePuzzleDisplayMode === null) {
-      state.prePuzzleDisplayMode = state.displayMode;
-    }
     state.sessionMode = 'puzzle';
     if (!state.puzzle) {
-      state.displayMode = 'normal-pieces';
-      elements.displayMode.value = state.displayMode;
+      state.revealPosition = false;
       state.puzzleViewIndex = 0;
       state.reviewPly = null;
       state.game = new Chess();
@@ -5711,10 +5672,6 @@ function startFollowGame() {
   if (state.speaking) {
     cancelTtsPlayback();
   }
-  if (state.prePuzzleDisplayMode !== null) {
-    state.displayMode = state.prePuzzleDisplayMode;
-    state.prePuzzleDisplayMode = null;
-  }
   state.sessionMode = 'follow-game';
   state.puzzle = null;
   state.puzzleRevealPrevView = null;
@@ -7367,7 +7324,7 @@ function updateMainControlsVisibility() {
   const blindStructuredLastMove = isBlindStructuredLastMoveMode();
   const hideDisplayMode = inPuzzle
     || (inBlind && state.blindPuzzles.mode === 'square-colors')
-    || (isPositionRecallMode() && state.blindPuzzles.running);
+    || isPositionRecallMode();
   const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
   const inGameDrill = inBlind && state.blindPuzzles.mode === 'game-drill';
@@ -7870,11 +7827,8 @@ function resetGame() {
   resetBlindPuzzleSession();
   clearBlindClickSelection();
   elements.moveInput.value = '';
-  if (state.prePuzzleDisplayMode !== null) {
-    state.displayMode = state.prePuzzleDisplayMode;
-    state.prePuzzleDisplayMode = null;
-  }
   state.sessionMode = 'game';
+  state.revealPosition = false;
   state.puzzle = null;
   state.puzzleRevealPrevView = null;
   state.puzzleAutoPlaying = false;
