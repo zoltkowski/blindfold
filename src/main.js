@@ -92,10 +92,6 @@ app.innerHTML = `
               Speak Checks
             </label>
             <label class="checkbox-row">
-              <input id="voiceOnOtherPuzzles" type="checkbox" />
-              Voice on for puzzles with timer
-            </label>
-            <label class="checkbox-row">
               <input id="figurineNotation" type="checkbox" checked />
               Use Figurine Notation
             </label>
@@ -159,47 +155,8 @@ app.innerHTML = `
               </select>
             </label>
             <label>
-              <span class="engine-meta"><span>Blind Puzzle Questions</span>: <span id="blindQuestionCountValue">25</span></span>
-              <input id="blindQuestionCount" type="range" min="1" max="30" step="1" value="25" />
-            </label>
-            <label>
               <span class="engine-meta"><span>Puzzle Backtrack (plies)</span>: <span id="puzzleBacktrackValue">2</span></span>
               <input id="puzzleBacktrack" type="range" min="1" max="32" step="1" value="2" />
-            </label>
-            <label>
-              <span class="engine-meta"><span>Recall Pieces</span>: <span id="positionRecallPiecesValue">8</span></span>
-              <input id="positionRecallPieces" type="range" min="2" max="32" step="1" value="8" />
-            </label>
-            <label>
-              <span class="engine-meta"><span>Recall Show (s)</span>: <span id="positionRecallShowSecValue">5</span></span>
-              <input id="positionRecallShowSec" type="range" min="1" max="20" step="1" value="5" />
-            </label>
-            <label>
-              <span class="engine-meta"><span>Recall Hide (s)</span>: <span id="positionRecallHideSecValue">3</span></span>
-              <input id="positionRecallHideSec" type="range" min="1" max="20" step="1" value="3" />
-            </label>
-            <label id="mattingTypesRow" class="toggle-option-row">
-              <span>Matting Types</span>
-              <div class="toggle-option-buttons" role="group" aria-label="Matting types">
-                <button id="mattingTypeKQBtn" type="button" data-matting-type="kq" aria-pressed="true" title="King + Queen">♔+♕</button>
-                <button id="mattingTypeKRBtn" type="button" data-matting-type="kr" aria-pressed="false" title="King + Rook">♔+♖</button>
-                <button id="mattingTypeKBBBtn" type="button" data-matting-type="kbb" aria-pressed="false" title="King + Two Bishops">♔+♗+♗</button>
-                <button id="mattingTypeKBNBtn" type="button" data-matting-type="kbn" aria-pressed="false" title="King + Bishop + Knight">♔+♗+♘</button>
-              </div>
-            </label>
-            <label id="movementModesRow" class="toggle-option-row">
-              <span>Movement Modes</span>
-              <div class="toggle-option-buttons" role="group" aria-label="Movement modes">
-                <button id="movementModeEdgeBtn" type="button" data-movement-mode="edge" aria-pressed="true">Edge Squares</button>
-                <button id="movementModeRouteBtn" type="button" data-movement-mode="route" aria-pressed="false">Route</button>
-              </div>
-            </label>
-            <label id="movementPiecesRow" class="toggle-option-row">
-              <span>Movement Pieces</span>
-              <div class="toggle-option-buttons" role="group" aria-label="Movement pieces">
-                <button id="movementPieceBishopBtn" type="button" data-movement-piece="bishop" aria-pressed="true">Bishop</button>
-                <button id="movementPieceKnightBtn" type="button" data-movement-piece="knight" aria-pressed="true">Knight</button>
-              </div>
             </label>
           </div>
         </div>
@@ -242,6 +199,60 @@ app.innerHTML = `
         </div>
       </div>
 
+      <div id="blindOptionsModal" class="config-modal" role="dialog" aria-modal="true" aria-labelledby="blindOptionsTitle" hidden>
+        <div class="config-card">
+          <div class="config-head">
+            <strong id="blindOptionsTitle">Other Puzzles Options</strong>
+            <button id="closeBlindOptionsBtn" type="button">Close</button>
+          </div>
+          <div class="grid-controls">
+            <label class="checkbox-row">
+              <input id="voiceOnOtherPuzzles" type="checkbox" />
+              Voice on for puzzles with timer
+            </label>
+            <label>
+              <span class="engine-meta"><span>Blind Puzzle Questions</span>: <span id="blindQuestionCountValue">25</span></span>
+              <input id="blindQuestionCount" type="range" min="1" max="30" step="1" value="25" />
+            </label>
+            <label>
+              <span class="engine-meta"><span>Recall Pieces</span>: <span id="positionRecallPiecesValue">8</span></span>
+              <input id="positionRecallPieces" type="range" min="2" max="32" step="1" value="8" />
+            </label>
+            <label>
+              <span class="engine-meta"><span>Recall Show (s)</span>: <span id="positionRecallShowSecValue">5</span></span>
+              <input id="positionRecallShowSec" type="range" min="1" max="20" step="1" value="5" />
+            </label>
+            <label>
+              <span class="engine-meta"><span>Recall Hide (s)</span>: <span id="positionRecallHideSecValue">3</span></span>
+              <input id="positionRecallHideSec" type="range" min="1" max="20" step="1" value="3" />
+            </label>
+            <label id="mattingTypesRow" class="toggle-option-row">
+              <span>Matting Types</span>
+              <div class="toggle-option-buttons" role="group" aria-label="Matting types">
+                <button id="mattingTypeKQBtn" type="button" data-matting-type="kq" aria-pressed="true" title="King + Queen">♔+♕</button>
+                <button id="mattingTypeKRBtn" type="button" data-matting-type="kr" aria-pressed="false" title="King + Rook">♔+♖</button>
+                <button id="mattingTypeKBBBtn" type="button" data-matting-type="kbb" aria-pressed="false" title="King + Two Bishops">♔+♗+♗</button>
+                <button id="mattingTypeKBNBtn" type="button" data-matting-type="kbn" aria-pressed="false" title="King + Bishop + Knight">♔+♗+♘</button>
+              </div>
+            </label>
+            <label id="movementModesRow" class="toggle-option-row">
+              <span>Movement Modes</span>
+              <div class="toggle-option-buttons" role="group" aria-label="Movement modes">
+                <button id="movementModeEdgeBtn" type="button" data-movement-mode="edge" aria-pressed="true">Edge Squares</button>
+                <button id="movementModeRouteBtn" type="button" data-movement-mode="route" aria-pressed="false">Route</button>
+              </div>
+            </label>
+            <label id="movementPiecesRow" class="toggle-option-row">
+              <span>Movement Pieces</span>
+              <div class="toggle-option-buttons" role="group" aria-label="Movement pieces">
+                <button id="movementPieceBishopBtn" type="button" data-movement-piece="bishop" aria-pressed="true">Bishop</button>
+                <button id="movementPieceKnightBtn" type="button" data-movement-piece="knight" aria-pressed="true">Knight</button>
+              </div>
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
         <div id="blindButtons" class="blind-buttons">
           <button id="blindSquareColorsBtn" type="button">Square Colors</button>
@@ -250,6 +261,7 @@ app.innerHTML = `
           <button id="blindPositionRecallBtn" type="button">Position Recall</button>
           <button id="blindPositionBtn" type="button">Position</button>
           <button id="blindGameBtn" type="button">Game</button>
+          <button id="openBlindOptionsBtn" type="button" aria-haspopup="dialog" aria-controls="blindOptionsModal">Options</button>
         </div>
         <div id="blindMain" class="blind-main">
           <div class="blind-stats">
@@ -450,6 +462,9 @@ const elements = {
   showSolutionBtn: document.getElementById('showSolutionBtn'),
   puzzleContext: document.getElementById('puzzleContext'),
   blindPanel: document.getElementById('blindPanel'),
+  blindOptionsModal: document.getElementById('blindOptionsModal'),
+  openBlindOptionsBtn: document.getElementById('openBlindOptionsBtn'),
+  closeBlindOptionsBtn: document.getElementById('closeBlindOptionsBtn'),
   blindGameBtn: document.getElementById('blindGameBtn'),
   blindPositionBtn: document.getElementById('blindPositionBtn'),
   blindSquareColorsBtn: document.getElementById('blindSquareColorsBtn'),
@@ -8542,6 +8557,20 @@ function endPositionRecallDrag(event) {
 elements.positionRecallPalette.addEventListener('pointerup', endPositionRecallDrag);
 document.addEventListener('lostpointercapture', endPositionRecallDrag);
 
+function closeBlindOptions() {
+  elements.blindOptionsModal.hidden = true;
+  elements.openBlindOptionsBtn.focus();
+}
+
+elements.openBlindOptionsBtn.addEventListener('click', () => {
+  elements.blindOptionsModal.hidden = false;
+  elements.closeBlindOptionsBtn.focus();
+});
+elements.closeBlindOptionsBtn.addEventListener('click', closeBlindOptions);
+elements.blindOptionsModal.addEventListener('click', (event) => {
+  if (event.target === elements.blindOptionsModal) closeBlindOptions();
+});
+
 elements.openConfigBtn.addEventListener('click', openConfigModal);
 elements.closeConfigBtn.addEventListener('click', closeConfigModal);
 elements.configModal.addEventListener('click', (event) => {
@@ -8565,7 +8594,9 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault();
     return;
   }
-  if (event.key === 'Escape' && !elements.configModal.hidden) {
+  if (event.key === 'Escape' && !elements.blindOptionsModal.hidden) {
+    closeBlindOptions();
+  } else if (event.key === 'Escape' && !elements.configModal.hidden) {
     closeConfigModal();
   }
 });
