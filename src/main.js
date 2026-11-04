@@ -4194,7 +4194,7 @@ function checkPositionRecallPlacement() {
   const targetPieces = state.blindPuzzles.positionRecallTargetPieces;
   const placedPieces = state.blindPuzzles.positionRecallPlacedPieces;
   if (placedPieces.size !== targetPieces.length) {
-    elements.statusText.textContent = `Use exactly ${targetPieces.length} pieces (${placedPieces.size} placed).`;
+    elements.statusText.textContent = 'The number of pieces is incorrect.';
     return;
   }
 
@@ -5380,7 +5380,7 @@ function positionRecallEnterAnswerStage() {
   state.blindPuzzles.positionRecallSelectedPiece = null;
   state.blindPuzzles.positionRecallTrashMode = false;
   state.revealPosition = false;
-  elements.statusText.textContent = `Place ${state.blindPuzzles.total} pieces or say “white knight f3” / “biały skoczek f3”.`;
+  elements.statusText.textContent = 'Rebuild the position or say “white knight f3” / “biały skoczek f3”.';
   updateAll();
 }
 
