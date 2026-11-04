@@ -75,8 +75,8 @@ app.innerHTML = `
             </label>
 
             <label>
-              <span class="engine-meta"><span>Stockfish Elo</span>: <span id="optionStrengthValue">1700</span></span>
-              <input id="optionEngineStrength" type="range" min="400" max="2850" step="50" value="1700" />
+              <span class="engine-meta"><span>Maia 3 rating</span>: <span id="optionStrengthValue">1700</span></span>
+              <input id="optionEngineStrength" type="range" min="600" max="2600" step="50" value="1700" />
             </label>
 
             <label class="checkbox-row">
@@ -782,7 +782,7 @@ const state = {
   boardOrientation: 'white',
   displayMode: 'normal-pieces',
   moveLanguage: 'pl',
-  stockfishElo: 1700,
+  maiaElo: 1700,
   speakCheck: false,
   voiceOnOtherPuzzles: false,
   sessionMode: 'game',
@@ -1597,7 +1597,7 @@ function syncMovementPieceButtons() {
 function writeSettings() {
   const payload = {
     moveLanguage: state.moveLanguage,
-    stockfishElo: state.stockfishElo,
+    maiaElo: state.maiaElo,
     speakComputer: elements.speakComputer.checked,
     voiceSticky: state.voiceSticky,
     speakCheck: state.speakCheck,
@@ -1637,9 +1637,9 @@ function loadSettingsIntoState() {
   if (saved.moveLanguage === 'pl' || saved.moveLanguage === 'en') {
     state.moveLanguage = saved.moveLanguage;
   }
-  const savedElo = Number(saved.stockfishElo ?? saved.defaultStockfishElo);
+  const savedElo = Number(saved.maiaElo ?? saved.stockfishElo ?? saved.defaultStockfishElo);
   if (Number.isFinite(savedElo)) {
-    state.stockfishElo = Math.max(400, Math.min(2850, savedElo));
+    state.maiaElo = normalizeMaiaElo(savedElo);
   }
   if (typeof saved.speakCheck === 'boolean') {
     state.speakCheck = saved.speakCheck;
@@ -1718,8 +1718,8 @@ function loadSettingsIntoState() {
 function applySettingsToUi() {
   elements.displayMode.value = state.displayMode;
   elements.moveLanguage.value = state.moveLanguage;
-  elements.optionEngineStrength.value = String(state.stockfishElo);
-  elements.optionStrengthValue.textContent = String(state.stockfishElo);
+  elements.optionEngineStrength.value = String(state.maiaElo);
+  elements.optionStrengthValue.textContent = String(state.maiaElo);
   elements.speakCheck.checked = state.speakCheck;
   elements.voiceOnOtherPuzzles.checked = state.voiceOnOtherPuzzles;
   elements.showBlindDests.checked = state.showBlindDests;
@@ -6713,21 +6713,13 @@ function engineColor() {
   return state.userColor === 'white' ? 'b' : 'w';
 }
 
-function stockfishMoveTimeFromElo(elo = state.stockfishElo) {
-  if (elo <= 800) return 70;
-  if (elo <= 1200) return 90;
-  if (elo <= 1600) return 130;
-  if (elo <= 2000) return 180;
-  if (elo <= 2400) return 260;
-  return 380;
+function normalizeMaiaElo(value) {
+  return Number.isFinite(value) ? Math.max(600, Math.min(2600, Math.round(value / 50) * 50)) : 1700;
 }
 
 function syncEngineControlUi() {
-  elements.optionEngineStrength.min = '400';
-  elements.optionEngineStrength.max = '2850';
-  elements.optionEngineStrength.step = '50';
-  elements.optionEngineStrength.value = String(state.stockfishElo);
-  elements.optionStrengthValue.textContent = String(state.stockfishElo);
+  elements.optionEngineStrength.value = String(state.maiaElo);
+  elements.optionStrengthValue.textContent = String(state.maiaElo);
 }
 
 function parseStockfishScoreFromInfo(line) {
@@ -6760,7 +6752,7 @@ function ensureStockfishWorker() {
     return;
   }
 
-  const worker = new Worker('/engines/stockfish-18-lite-single.js');
+  const worker = new Worker('/engines/stockfish-19-lite-single.js');
   stockfishState.worker = worker;
   stockfishState.ready = false;
   stockfishState.uciReadySeen = false;
@@ -6870,12 +6862,12 @@ function parseUci(uci) {
   };
 }
 
-function findLegalMoveByUci(uci) {
+function findLegalMoveByUci(uci, game = state.game) {
   const parsed = parseUci(uci);
   if (!parsed) {
     return null;
   }
-  const legal = state.game.moves({ verbose: true });
+  const legal = game.moves({ verbose: true });
   return legal.find((mv) =>
     mv.from === parsed.from &&
     mv.to === parsed.to &&
@@ -6931,25 +6923,45 @@ async function requestStockfishBestMove({ fen, moveTime, uciElo }) {
   });
 }
 
-async function pickStockfishMove({ eloOverride, moveTimeOverride } = {}) {
-  const fen = state.game.fen();
-  const uciElo = eloOverride ?? state.stockfishElo;
-  const moveTime = moveTimeOverride ?? stockfishMoveTimeFromElo(uciElo);
+let maiaWorker = null;
 
-  const result = await requestStockfishBestMove({
-    fen,
-    moveTime,
-    uciElo
+function requestMaiaMove(game) {
+  if (!maiaWorker) {
+    maiaWorker = new Worker(new URL('./maia-engine.worker.js', import.meta.url), { type: 'module' });
+  }
+  const worker = maiaWorker;
+  const priorFens = game.history({ verbose: true }).slice(-7).map((move) => move.before);
+  return new Promise((resolve, reject) => {
+    const finish = (error, bestMove) => {
+      window.clearTimeout(timeout);
+      worker.onmessage = null;
+      worker.onerror = null;
+      if (error) {
+        worker.terminate();
+        maiaWorker = null;
+        reject(error);
+      } else {
+        resolve(bestMove);
+      }
+    };
+    const timeout = window.setTimeout(() => finish(new Error('Maia 3 timed out')), 60000);
+    worker.onmessage = ({ data }) => finish(data.error ? new Error(data.error) : null, data.bestMove);
+    worker.onerror = () => finish(new Error('Maia 3 worker failed'));
+    worker.postMessage({
+      fen: game.fen(),
+      priorFens,
+      selfElo: state.maiaElo,
+      oppoElo: state.maiaElo
+    });
   });
-
-  return findLegalMoveByUci(result.uci);
 }
 
-async function pickEngineMove() {
-  if (isBlindPlayableGameMode()) {
-    return pickStockfishMove({ eloOverride: 2850, moveTimeOverride: 300 });
+async function pickEngineMove(game, mode) {
+  if (mode === 'game') {
+    return findLegalMoveByUci(await requestMaiaMove(game), game);
   }
-  return pickStockfishMove();
+  const result = await requestStockfishBestMove({ fen: game.fen(), moveTime: 300, uciElo: 2850 });
+  return findLegalMoveByUci(result.uci, game);
 }
 
 function speakMoveIfEnabled(moveSan) {
@@ -7025,26 +7037,33 @@ async function playEngineMoveIfNeeded() {
     return;
   }
 
+  const game = state.game;
+  const mode = state.sessionMode;
+  const isCurrentGame = () => state.game === game && state.sessionMode === mode;
   state.engineThinking = true;
+  if (mode === 'game') elements.statusText.textContent = 'Maia 3 is thinking…';
   refreshVoiceListeningState();
   try {
-    const mv = await pickEngineMove();
-    if (!mv) {
+    const mv = await pickEngineMove(game, mode);
+    if (!isCurrentGame() || game.isGameOver() || game.turn() !== engineColor()) {
       return;
     }
+    if (!mv) throw new Error('Engine returned no legal move');
 
-    if (state.game.isGameOver() || state.game.turn() !== engineColor()) {
-      return;
-    }
-
-    state.game.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
+    game.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
+    state.engineThinking = false;
     speakMoveIfEnabled(mv.san);
     afterAnyMove();
-  } catch (_error) {
-    elements.statusText.textContent = 'Stockfish error. Try New Game.';
+  } catch (error) {
+    if (isCurrentGame()) {
+      const engine = mode === 'game' ? 'Maia 3' : 'Stockfish';
+      console.error(engine + ' error', error);
+      elements.statusText.textContent = engine + ' error. Try starting again.';
+    }
   } finally {
     state.engineThinking = false;
     refreshVoiceListeningState();
+    if (!isCurrentGame()) void playEngineMoveIfNeeded();
   }
 }
 
@@ -8076,8 +8095,7 @@ elements.blindQuestionCount.addEventListener('input', () => {
 
 elements.optionEngineStrength.addEventListener('input', () => {
   const value = Number(elements.optionEngineStrength.value);
-  const bounded = Number.isFinite(value) ? Math.max(400, Math.min(2850, Math.round(value / 50) * 50)) : 1700;
-  state.stockfishElo = bounded;
+  state.maiaElo = normalizeMaiaElo(value);
   syncEngineControlUi();
   writeSettings();
 });
@@ -8547,6 +8565,7 @@ window.addEventListener('beforeunload', () => {
   state.voiceMode = false;
   stopVoiceListening({ hardReset: true });
   stopStockfishWorker();
+  maiaWorker?.terminate();
 });
 
 window.addEventListener('keydown', (event) => {
@@ -8626,7 +8645,6 @@ elements.voiceStickyBtn.addEventListener('click', () => {
 
 async function bootstrapApp() {
   await hydratePersistentStorage();
-  ensureStockfishWorker();
   state.positionExercises = buildPositionExercises();
   state.positionSolved = readSolvedPositions();
   state.gameExercises = buildGameExercises();

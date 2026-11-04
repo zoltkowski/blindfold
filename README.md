@@ -24,8 +24,8 @@ Blindfold training web app built with Lichess `chessground`.
 - Optional figurine notation in move list and last move
 - Show/hide move list button
 - Reveal position toggle button
-- Engine: Stockfish only
-- Stockfish Elo slider (extended lower range)
+- New Game uses [Maia 3 5M](https://github.com/CSSLab/maia3) with a configurable rating from 600 to 2600. The browser downloads and caches the [ONNX model](https://huggingface.co/cemoss17/maia3-onnx/tree/2a8295492e802fdea829cc9d30d8ad42fc3c7f72) on first use and runs it locally.
+- Exercises use [Stockfish 19](https://github.com/official-stockfish/Stockfish/releases/tag/sf_19) via [Stockfish.js 19.0.1](https://github.com/nmrugg/stockfish.js/releases/tag/v19.0.1) Lite single-threaded WebAssembly (GPL-3.0).
 - Lichess puzzle loader with configurable context (`-n` plies), immediate solving via text/voice, and board navigation (`Back`/`Forward`)
 - Puzzle mode `Show Solution` button that auto-plays the full official Lichess solution line and fills move list
 

@@ -2,13 +2,17 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  resolve: {
+    alias: [{ find: /^onnxruntime-web$/, replacement: 'onnxruntime-web/wasm' }]
+  },
+  worker: { format: 'es' },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       includeAssets: ['favicon.ico'],
       workbox: {
-        globIgnores: ['**/engines/**']
+        globIgnores: ['**/engines/**', '**/ort-wasm-*.wasm']
       },
       manifest: {
         name: 'Blindfold Chess Trainer',

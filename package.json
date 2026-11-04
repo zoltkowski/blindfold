@@ -13,7 +13,9 @@
   "dependencies": {
     "@lichess-org/chessground": "^10.0.2",
     "chess.js": "^1.4.0",
-    "stockfish": "^18.0.5"
+    "maia3-js": "0.2.0",
+    "onnxruntime-web": "1.31.1",
+    "stockfish": "19.0.1"
   },
   "devDependencies": {
     "vite": "^7.1.0",
