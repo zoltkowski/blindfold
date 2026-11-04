@@ -338,9 +338,14 @@ button:hover {
   gap: 0.35rem;
 }
 
-.follow-browse-actions > button {
-  justify-self: start;
+.follow-browse-actions > #followPlayBtn {
   min-width: 7rem;
+}
+
+.follow-browse-actions > #reviewPrevBtn svg,
+.follow-browse-actions > #reviewNextBtn svg {
+  display: block;
+  pointer-events: none;
 }
 
 .blind-panel {
@@ -1300,7 +1305,7 @@ body.puzzle-mode .moves-wrap {
     margin-top: 0;
   }
 
-  #toggleMovesBtn {
+  #movesPanel > #toggleMovesBtn {
     float: right;
     margin-top: -2.9rem;
     width: 5.3rem;
@@ -1421,7 +1426,7 @@ body.puzzle-mode .moves-wrap {
     position: relative;
   }
 
-  #toggleMovesBtn {
+  #movesPanel > #toggleMovesBtn {
     position: absolute !important;
     right: 0 !important;
     top: -3.55rem !important;
