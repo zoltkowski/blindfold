@@ -188,6 +188,7 @@ app.innerHTML = `
             <button id="followUploadBtn" type="button">Upload PGN</button>
             <input id="followUploadInput" type="file" accept=".pgn,text/plain" hidden />
           </div>
+          <div id="followGameTitle" class="follow-title">-</div>
           <div class="follow-actions">
             <button id="followModeQuizBtn" type="button" data-follow-mode="quiz">Quiz</button>
             <select id="followQuizAutoColor" title="Computer plays this color in quiz">
@@ -202,9 +203,8 @@ app.innerHTML = `
             <input id="followQuizStart" type="range" min="1" max="25" step="1" value="1" />
           </label>
         </div>
-        <div id="followGameTitle" class="follow-title">-</div>
         <div id="followGameMeta" class="follow-meta" hidden>-</div>
-        <div id="followGameMoves" class="follow-moves">-</div>
+        <div id="followGameMoves" class="follow-moves"></div>
         <div id="followBrowseActions" class="follow-browse-actions">
         </div>
       </div>
@@ -3322,7 +3322,7 @@ function updateFollowPanel() {
     elements.followGameSelect.innerHTML = '';
     elements.followGameTitle.textContent = '-';
     elements.followGameMeta.textContent = '-';
-    elements.followGameMoves.textContent = '-';
+    elements.followGameMoves.textContent = '';
     elements.followQuizStartRow.hidden = true;
     elements.followBrowseActions.hidden = false;
     elements.followRestartBtn.disabled = true;
@@ -3348,7 +3348,7 @@ function updateFollowPanel() {
   if (!current) {
     elements.followGameTitle.textContent = 'No follow game selected.';
     elements.followGameMeta.textContent = '-';
-    elements.followGameMoves.textContent = '-';
+    elements.followGameMoves.textContent = '';
     elements.followRestartBtn.disabled = true;
     return;
   }
@@ -3378,7 +3378,7 @@ function updateFollowPanel() {
   elements.followGameMoves.classList.add('last-move-text');
   elements.followGameMoves.textContent = '';
   if (shownPlies <= 0) {
-    elements.followGameMoves.textContent = '-';
+    elements.followGameMoves.textContent = '';
   } else {
     const lastSan = current.moveSans[shownPlies - 1] ?? '';
     const rendered = formatSanForDisplay(lastSan);
