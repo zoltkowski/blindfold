@@ -193,7 +193,7 @@ app.innerHTML = `
             <input id="followUploadInput" type="file" accept=".pgn,text/plain" hidden />
           </div>
           <div id="followGameTitle" class="follow-title">-</div>
-          <div class="follow-actions follow-mode-actions">
+          <div id="followModeActions" class="follow-actions follow-mode-actions" hidden>
             <button id="followModeQuizBtn" type="button" data-follow-mode="quiz">Quiz</button>
             <select id="followQuizAutoColor" title="Computer plays this color in quiz">
               <option value="none">Quiz: both colors</option>
@@ -467,6 +467,7 @@ const elements = {
   followUploadBtn: document.getElementById('followUploadBtn'),
   followUploadInput: document.getElementById('followUploadInput'),
   followModeQuizBtn: document.getElementById('followModeQuizBtn'),
+  followModeActions: document.getElementById('followModeActions'),
   followQuizAutoColor: document.getElementById('followQuizAutoColor'),
   followRestartBtn: document.getElementById('followRestartBtn'),
   followQuizActions: document.getElementById('followQuizActions'),
@@ -3324,6 +3325,7 @@ function restartFollowCurrent() {
 function updateFollowPanel() {
   const active = state.sessionMode === 'follow-game';
   elements.followPanel.hidden = !active || state.followGame.mode === 'quiz';
+  elements.followModeActions.hidden = !active || !state.followGame.current;
   if (!active) {
     elements.followGamePickerRow.hidden = false;
     elements.followGamePickerActions.hidden = false;
