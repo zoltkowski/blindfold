@@ -338,6 +338,10 @@ app.innerHTML = `
           <button id="voiceStickyBtn" type="button">Voice: Off</button>
           <button id="voiceOnceBtn" type="button">Listen Once</button>
         </div>
+        <div id="followQuizActions" class="follow-quiz-actions" hidden>
+          <button id="followQuizHintBtn" type="button" aria-label="Play the next move" title="Play the next move">💡</button>
+          <button id="followQuizExitBtn" type="button">Exit Quiz</button>
+        </div>
         <div id="voiceStatus" class="muted"></div>
       </div>
 
@@ -467,6 +471,9 @@ const elements = {
   followQuizStart: document.getElementById('followQuizStart'),
   followQuizStartValue: document.getElementById('followQuizStartValue'),
   followRestartBtn: document.getElementById('followRestartBtn'),
+  followQuizActions: document.getElementById('followQuizActions'),
+  followQuizHintBtn: document.getElementById('followQuizHintBtn'),
+  followQuizExitBtn: document.getElementById('followQuizExitBtn'),
   followGameTitle: document.getElementById('followGameTitle'),
   followGameMeta: document.getElementById('followGameMeta'),
   followGameMoves: document.getElementById('followGameMoves'),
@@ -3339,7 +3346,7 @@ function restartFollowCurrent() {
 
 function updateFollowPanel() {
   const active = state.sessionMode === 'follow-game';
-  elements.followPanel.hidden = !active;
+  elements.followPanel.hidden = !active || state.followGame.mode === 'quiz';
   if (!active) {
     elements.followGamePickerRow.hidden = false;
     elements.followGamePickerActions.hidden = false;
@@ -3357,12 +3364,12 @@ function updateFollowPanel() {
   syncFollowGameSelectOptions();
   syncFollowQuizSliderBounds();
   elements.followQuizAutoColor.value = state.followGame.quizAutoColor;
-  elements.followQuizStartRow.hidden = state.followGame.mode !== 'quiz';
+  elements.followQuizStartRow.hidden = !state.followGame.current;
   elements.followGameSelect.disabled = !state.followGame.games.length;
   elements.followLoadBtn.disabled = !state.followGame.games.length;
   elements.followRandomBtn.disabled = !state.followGame.games.length;
-  elements.followQuizAutoColor.disabled = state.followGame.mode !== 'quiz';
-  elements.followQuizStart.disabled = state.followGame.mode !== 'quiz' || !state.followGame.current;
+  elements.followQuizAutoColor.disabled = !state.followGame.current;
+  elements.followQuizStart.disabled = !state.followGame.current;
 
   const current = state.followGame.current;
   const hasLoadedGame = !!current;
@@ -6350,15 +6357,19 @@ function handleReviewPlay() {
 function updateReviewControls() {
   const { reviewNav, reviewPrevBtn, reviewNextBtn, reviewPlayBtn, toggleMovesBtn, movesPanel } = elements;
   const inFollow = state.sessionMode === 'follow-game';
+  const inFollowQuiz = inFollow && state.followGame.mode === 'quiz';
+  elements.followQuizActions.hidden = !inFollowQuiz;
+  elements.followQuizHintBtn.disabled = !isFollowQuizPlayable()
+    || isFollowQuizAutoTurn() || state.followGame.quizEvaluating;
   reviewNav.hidden = inFollow;
   if (inFollow) {
     const actions = elements.followBrowseActions;
     if (reviewPlayBtn.parentElement !== actions) {
       actions.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn);
     }
-    if (state.followGame.mode === 'quiz') {
-      if (toggleMovesBtn.previousElementSibling !== elements.followRestartBtn) {
-        elements.followRestartBtn.after(toggleMovesBtn);
+    if (inFollowQuiz) {
+      if (toggleMovesBtn.parentElement !== elements.followQuizActions) {
+        elements.followQuizActions.prepend(toggleMovesBtn);
       }
     } else if (toggleMovesBtn.parentElement !== actions) {
       actions.append(toggleMovesBtn);
@@ -7449,7 +7460,7 @@ function updateMainControlsVisibility() {
   const inBlindGame = inBlind && isBlindPlayableGameMode();
   const inGameDrill = inBlind && state.blindPuzzles.mode === 'game-drill';
   const inBlindVoiceControls = inBlind && shouldShowBlindVoiceControls();
-  const inFollowQuiz = inFollow && isFollowQuizPlayable();
+  const inFollowQuiz = inFollow && state.followGame.mode === 'quiz' && !!state.followGame.current;
   const hideBelowSlider = state.hideBelowSliderOnStart && state.sessionMode === 'game';
   const allowMoveInput = !state.game.isGameOver()
     && !state.engineThinking
@@ -8487,12 +8498,21 @@ elements.followQuizStart.addEventListener('input', () => {
   state.followGame.quizStartMove = bounded;
   elements.followQuizStart.value = String(bounded);
   elements.followQuizStartValue.textContent = String(bounded);
-  if (state.followGame.mode === 'quiz') {
-    state.followGame.quizActive = false;
-    state.followGame.quizFeedback = '';
-    resetFollowForCurrentSelection();
+  if (state.followGame.mode === 'browse' && state.followGame.current) {
+    stopFollowBrowsePlayback({ cancelSpeech: true });
+    if (setFollowGamePly(followStartPlyFromSelectedMove())) updateAll();
   }
 });
+elements.followQuizHintBtn.addEventListener('click', () => {
+  if (!isFollowQuizPlayable() || isFollowQuizAutoTurn() || state.followGame.quizEvaluating) return;
+  clearBlindClickSelection();
+  if (!applyFollowExpectedMove()) return;
+  state.followGame.quizFeedback = '';
+  followQuizAutoplayIfNeeded();
+  followQuizFinishIfDone();
+  updateAll();
+});
+elements.followQuizExitBtn.addEventListener('click', () => setFollowMode('browse'));
 elements.followRestartBtn.addEventListener('click', () => {
   restartFollowCurrent();
 });

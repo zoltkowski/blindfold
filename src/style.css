@@ -948,6 +948,12 @@ body.status-replaced-by-lastmove #lastMoveRow {
   gap: 0.45rem;
 }
 
+.follow-quiz-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 #voiceStickyBtn.is-on,
 #voiceOnceBtn.is-on {
   background: #1f7a34;
