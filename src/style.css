@@ -78,6 +78,7 @@ select,
 #board .cg-wrap,
 #board .cg-wrap * {
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #board coords.squares coord {

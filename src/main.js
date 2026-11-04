@@ -8569,9 +8569,24 @@ elements.movesBody.addEventListener('click', (event) => {
 });
 
 elements.board.addEventListener('click', onBlindBoardClick);
+function isEmptyBoardPress(x, y) {
+  if (isBlindClickInputActive() || canEditPositionRecall() || ground.state.selected
+    || ground.state.drawable.shapes.length) return false;
+  const square = ground.getKeyAtDomPos([x, y]);
+  return !!square && !ground.state.pieces.has(square);
+}
+elements.board.addEventListener('mousedown', (event) => {
+  if (event.button === 0 && !event.shiftKey && isEmptyBoardPress(event.clientX, event.clientY)) {
+    event.stopPropagation();
+  }
+}, { capture: true });
 let blindBoardTouch = null;
 elements.board.addEventListener('touchstart', (event) => {
-  if (!isBlindClickInputActive()) return;
+  if (!isBlindClickInputActive()) {
+    const touch = event.touches.length === 1 ? event.touches[0] : null;
+    if (touch && isEmptyBoardPress(touch.clientX, touch.clientY)) event.stopPropagation();
+    return;
+  }
   // Handle taps directly, since Chessground can suppress clicks on occupied squares.
   event.preventDefault();
   event.stopPropagation();
