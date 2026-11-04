@@ -3076,7 +3076,9 @@ function syncFollowGameSelectOptions() {
     const option = document.createElement('option');
     option.value = String(game.id);
     const year = followGameDateLabel(game.date);
-    option.textContent = year ? `${game.title} (${year})` : game.title;
+    const yearAlreadyInTitle = (game.title.match(/\([^)]*\)/g) ?? [])
+      .some((part) => (part.match(/\b\d{4}\b/g) ?? []).includes(year));
+    option.textContent = year && !yearAlreadyInTitle ? `${game.title} (${year})` : game.title;
     select.appendChild(option);
   }
   const exists = state.followGame.games.some((game) => String(game.id) === String(previous));
