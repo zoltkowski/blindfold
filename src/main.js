@@ -3087,6 +3087,14 @@ function syncFollowQuizSliderBounds() {
   elements.followQuizStartValue.textContent = String(bounded);
 }
 
+function followGameDisplayTitle(game) {
+  const names = game.title.replace(/\s*\([^)]*\)/g, '').split(/\s+vs\s+/i)
+    .map((name) => name.split(',')[0].trim()).join(' vs ');
+  const dateYear = followGameDateLabel(game.date);
+  const year = /^\d{4}$/.test(dateYear) ? dateYear : (game.title.match(/\b\d{4}\b/)?.[0] ?? '');
+  return year ? `${names} (${year})` : names;
+}
+
 function syncFollowGameSelectOptions() {
   const select = elements.followGameSelect;
   const previous = state.followGame.selectedId || select.value;
@@ -3094,11 +3102,7 @@ function syncFollowGameSelectOptions() {
   for (const game of state.followGame.games) {
     const option = document.createElement('option');
     option.value = String(game.id);
-    const names = game.title.replace(/\s*\([^)]*\)/g, '').split(/\s+vs\s+/i)
-      .map((name) => name.split(',')[0].trim()).join(' vs ');
-    const dateYear = followGameDateLabel(game.date);
-    const year = /^\d{4}$/.test(dateYear) ? dateYear : (game.title.match(/\b\d{4}\b/)?.[0] ?? '');
-    option.textContent = year ? `${names} (${year})` : names;
+    option.textContent = followGameDisplayTitle(game);
     select.appendChild(option);
   }
   const exists = state.followGame.games.some((game) => String(game.id) === String(previous));
@@ -3393,7 +3397,7 @@ function updateFollowPanel() {
   if (state.followGame.mode === 'quiz' && state.followGame.quizFeedback) {
     metaParts.push(state.followGame.quizFeedback);
   }
-  elements.followGameTitle.textContent = current.title;
+  elements.followGameTitle.textContent = followGameDisplayTitle(current);
   elements.followGameMeta.textContent = metaParts.join(' - ');
 
   elements.followGameMoves.classList.add('last-move-text');
