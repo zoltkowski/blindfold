@@ -875,7 +875,6 @@ const state = {
     bestAvgMsGte20: null
   },
   puzzleViewIndex: 0,
-  puzzleRevealPrevView: null,
   reviewPly: null,
   revealPosition: false,
   movesVisible: false,
@@ -2168,6 +2167,10 @@ function isBoardRevealActive() {
 }
 
 function boardGameForDisplayedPieces(boardGame) {
+  if (state.sessionMode === 'puzzle' && state.puzzle) {
+    const { baseFen, startFen } = state.puzzle;
+    return new Chess(state.revealPosition ? startFen : baseFen);
+  }
   if (state.sessionMode === 'follow-game') {
     if (state.revealPosition) {
       return boardGame;
@@ -2246,6 +2249,7 @@ function updateBoard() {
 
   const boardGame = getBoardGame();
   const boardGameForPieces = boardGameForDisplayedPieces(boardGame);
+  const boardIsStale = boardGameForPieces !== boardGame;
   const reviewLocked = isReviewLocked();
   const followMode = state.sessionMode === 'follow-game';
   let pieces = fenToPieces(boardGameForPieces.fen());
@@ -2290,7 +2294,7 @@ function updateBoard() {
     : (reviewLocked
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
-  const boardInputEnabled = (followMode || recall || movements || isBlindClickInputActive(boardGameForPieces !== boardGame))
+  const boardInputEnabled = (followMode || recall || movements || boardIsStale || isBlindClickInputActive(boardIsStale))
     ? false
     : (state.sessionMode !== 'game' || state.gameStarted);
   const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
@@ -2352,7 +2356,8 @@ function shouldSuppressVisualMarks() {
     return true;
   }
   return state.displayMode === 'no-board'
-    || state.sessionMode === 'blind-puzzles';
+    || state.sessionMode === 'blind-puzzles'
+    || state.sessionMode === 'puzzle';
 }
 
 function syncRevealButtonUi() {
@@ -2399,6 +2404,11 @@ function squareColorHeatmapHighlights() {
   return custom;
 }
 
+function isGameBoardDelayed() {
+  const total = state.game.history().length;
+  return gameSnapshotPly(total) !== total;
+}
+
 function isBlindClickInputActive(boardIsStale) {
   if (state.sessionMode === 'puzzle') {
     return !!state.puzzle && !state.puzzle.solved && !state.puzzleAutoPlaying;
@@ -2419,9 +2429,7 @@ function isBlindClickInputActive(boardIsStale) {
   if (state.displayMode === 'same-pieces' && state.userColor === 'black') {
     return true;
   }
-  if (boardIsStale !== undefined) return boardIsStale;
-  const total = state.game.history().length;
-  return gameSnapshotPly(total) !== total;
+  return boardIsStale ?? isGameBoardDelayed();
 }
 
 function shouldShowAnyMoveDots() {
@@ -2482,7 +2490,6 @@ function syncBlindClickDots() {
   }
   const legalMoves = state.game.moves({ verbose: true }).filter((mv) => mv.from === state.blindClickFrom);
   if (!legalMoves.length) {
-    state.blindClickFrom = null;
     ground.selectSquare(null);
     ground.setAutoShapes([]);
     return;
@@ -2527,8 +2534,12 @@ function onBlindBoardClick(event) {
   if (!(event instanceof MouseEvent)) {
     return;
   }
+  handleBlindBoardInputAt(event.clientX, event.clientY);
+}
+
+function handleBlindBoardInputAt(x, y) {
   if (canEditPositionRecall()) {
-    const squareRecall = ground.getKeyAtDomPos([event.clientX, event.clientY]);
+    const squareRecall = ground.getKeyAtDomPos([x, y]);
     if (squareRecall) {
       handlePositionRecallBoardClick(squareRecall);
     }
@@ -2539,7 +2550,7 @@ function onBlindBoardClick(event) {
     return;
   }
 
-  const square = ground.getKeyAtDomPos([event.clientX, event.clientY]);
+  const square = ground.getKeyAtDomPos([x, y]);
   if (!square) {
     return;
   }
@@ -2562,7 +2573,7 @@ function onBlindBoardClick(event) {
 
   if (!state.blindClickFrom) {
     const fromMoves = legalMoves.filter((mv) => mv.from === square);
-    if (clickedOwnPiece && fromMoves.length) {
+    if (isGameBoardDelayed() || (clickedOwnPiece && fromMoves.length)) {
       setBlindClickFrom(square);
     } else {
       clearBlindClickSelection();
@@ -3486,7 +3497,6 @@ async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
   clearBlindClickSelection();
   state.puzzleAutoPlaying = false;
-  state.puzzleRevealPrevView = null;
   state.puzzleLastAttempt = null;
   elements.moveInput.value = '';
   elements.loadPuzzleBtn.disabled = true;
@@ -3558,6 +3568,7 @@ async function loadLichessPuzzle() {
       solutionSans: solutionMoves.map((mv) => mv.san),
       startPly,
       baseFen: baseGame.fen(),
+      startFen: puzzleStartGame.fen(),
       verboseMoves: verbose
     };
     state.sessionMode = 'puzzle';
@@ -3574,7 +3585,6 @@ async function loadLichessPuzzle() {
       handleReviewPlay();
     }
   } catch (error) {
-    state.puzzleRevealPrevView = null;
     state.puzzleLastAttempt = null;
     state.sessionMode = 'puzzle';
     if (!state.puzzle) {
@@ -5508,7 +5518,6 @@ function startFollowGame() {
   }
   state.sessionMode = 'follow-game';
   state.puzzle = null;
-  state.puzzleRevealPrevView = null;
   state.puzzleAutoPlaying = false;
   state.puzzleViewIndex = 0;
   state.puzzleLastAttempt = null;
@@ -7790,7 +7799,6 @@ function resetGame() {
   state.sessionMode = 'game';
   state.revealPosition = false;
   state.puzzle = null;
-  state.puzzleRevealPrevView = null;
   state.puzzleAutoPlaying = false;
   state.puzzleViewIndex = 0;
   state.reviewPly = null;
@@ -8250,31 +8258,6 @@ elements.revealBtn.addEventListener('click', () => {
     updateAll();
     return;
   }
-  if (state.sessionMode === 'puzzle' && state.puzzle) {
-    if (!state.revealPosition) {
-      state.puzzleRevealPrevView = state.puzzleViewIndex;
-      state.revealPosition = true;
-      state.puzzleViewIndex = state.puzzle.startPly;
-      if (!syncPuzzleGameToView()) {
-        elements.statusText.textContent = 'Cannot show puzzle start position.';
-        state.revealPosition = false;
-        state.puzzleViewIndex = state.puzzleRevealPrevView ?? puzzleProgressAbsPly();
-        state.puzzleRevealPrevView = null;
-      }
-      updateAll();
-      return;
-    }
-    state.revealPosition = false;
-    state.puzzleViewIndex = Number.isInteger(state.puzzleRevealPrevView)
-      ? state.puzzleRevealPrevView
-      : puzzleProgressAbsPly();
-    state.puzzleRevealPrevView = null;
-    if (!syncPuzzleGameToView()) {
-      elements.statusText.textContent = 'Cannot restore puzzle view.';
-    }
-    updateAll();
-    return;
-  }
   state.revealPosition = !state.revealPosition;
   clearBlindClickSelection();
   updateBoard();
@@ -8456,6 +8439,26 @@ elements.movesBody.addEventListener('click', (event) => {
 });
 
 elements.board.addEventListener('click', onBlindBoardClick);
+let blindBoardTouch = null;
+elements.board.addEventListener('touchstart', (event) => {
+  if (!isBlindClickInputActive()) return;
+  // Handle taps directly, since Chessground can suppress clicks on occupied squares.
+  event.preventDefault();
+  event.stopPropagation();
+  blindBoardTouch = event.touches.length === 1 ? event.changedTouches[0] : null;
+}, { capture: true, passive: false });
+elements.board.addEventListener('touchend', (event) => {
+  const start = blindBoardTouch;
+  blindBoardTouch = null;
+  if (!start || !isBlindClickInputActive()) return;
+  const end = [...event.changedTouches].find((touch) => touch.identifier === start.identifier);
+  if (end && Math.hypot(end.clientX - start.clientX, end.clientY - start.clientY) < 10) {
+    handleBlindBoardInputAt(end.clientX, end.clientY);
+  }
+});
+elements.board.addEventListener('touchcancel', () => {
+  blindBoardTouch = null;
+});
 let recallDrag;
 let suppressRecallPaletteClick = false;
 elements.positionRecallPalette.addEventListener('click', (event) => {
