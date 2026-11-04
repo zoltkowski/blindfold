@@ -380,17 +380,6 @@ button:hover {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
-.blind-panel.same-diagonal-layout .blind-prompt {
-  font-size: 2.6rem;
-  line-height: 1.05;
-  justify-self: center;
-  text-align: center;
-}
-
-.blind-panel.same-diagonal-layout .blind-main {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-}
-
 .blind-panel.movement-layout .blind-prompt {
   font-size: 3.4rem;
   line-height: 1;
@@ -451,6 +440,101 @@ button:hover {
   margin-top: 0.35rem;
   display: grid;
   gap: 0.2rem;
+}
+
+.position-recall-layout .blind-score,
+.position-recall-layout .blind-prompt {
+  display: none;
+}
+
+.position-recall-tools {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.position-recall-palette {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.position-recall-palette-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 2.5rem));
+  gap: 0.45rem;
+}
+
+.position-recall-piece {
+  min-width: 0;
+  touch-action: none;
+  user-select: none;
+  min-height: 2.5rem;
+  padding: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-width: 1px;
+}
+
+.position-recall-drag-ghost {
+  position: fixed;
+  z-index: 20;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.position-recall-piece-white {
+  background: #f0d9b5;
+  border-color: #d3b07a;
+}
+
+.position-recall-piece-black {
+  background: #b58863;
+  border-color: #8f6547;
+}
+
+.position-recall-piece-art {
+  position: relative;
+  display: block;
+  width: 1.8rem;
+  height: 1.8rem;
+  pointer-events: none;
+}
+
+.position-recall-piece-art piece {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+.position-recall-piece.is-selected {
+  outline: 3px solid #2f6fdd;
+  outline-offset: 1px;
+}
+
+.position-recall-piece-white:hover {
+  background: #e8cfa7;
+}
+
+.position-recall-piece-black:hover {
+  background: #a77953;
+}
+
+.position-recall-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.position-recall-actions > button.is-on {
+  background: #f4d8d8;
+  border-color: #cf8f8f;
+  color: #6e2020;
 }
 
 .blind-token {
@@ -655,26 +739,6 @@ body.blind-structured-mode #statusText {
 
 #squareColorBlackBtn:hover {
   background: #a67853;
-}
-
-#sameDiagonalYesBtn {
-  background: #e4f5e7;
-  border-color: #a8d4b0;
-  color: #21532b;
-}
-
-#sameDiagonalYesBtn:hover {
-  background: #d7efdc;
-}
-
-#sameDiagonalNoBtn {
-  background: #f9e4e4;
-  border-color: #ddb1b1;
-  color: #6e2020;
-}
-
-#sameDiagonalNoBtn:hover {
-  background: #f4d8d8;
 }
 
 #blindStopBtn {
@@ -1449,4 +1513,24 @@ body.theme-dark .move-token.clickable-move:hover {
 body.theme-dark .move-assist.is-popup-open {
   background: #161b20;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+body.theme-dark .position-recall-piece-white {
+  background: #f0d9b5;
+  border-color: #d3b07a;
+}
+
+body.theme-dark .position-recall-piece-black {
+  background: #b58863;
+  border-color: #8f6547;
+}
+
+body.theme-dark .position-recall-piece.is-selected {
+  outline-color: #7fb0ff;
+}
+
+body.theme-dark .position-recall-actions > button.is-on {
+  background: #522727;
+  border-color: #9b5151;
+  color: #ffdada;
 }

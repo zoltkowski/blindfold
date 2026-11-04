@@ -3,6 +3,7 @@ import { Chessground } from '@lichess-org/chessground';
 import '@lichess-org/chessground/assets/chessground.base.css';
 import '@lichess-org/chessground/assets/chessground.brown.css';
 import '@lichess-org/chessground/assets/chessground.cburnett.css';
+import { POSITION_RECALL_GAMES } from './position-recall-games.js';
 import './style.css';
 
 const app = document.querySelector('#app');
@@ -233,23 +234,30 @@ app.innerHTML = `
       </div>
 
       <div class="puzzle-panel blind-panel" id="blindPanel" hidden>
-        <div class="blind-buttons">
-          <button id="blindSquareColorsBtn" type="button">Square Colors</button>
-          <button id="blindSameDiagonalBtn" type="button">Same Diagonal</button>
-          <button id="blindMovementsBtn" type="button">Movements</button>
-          <button id="blindCheckBtn" type="button">Check</button>
-          <button id="blindMatingBtn" type="button">Mating</button>
-          <button id="blindPositionRecallBtn" type="button">Position Recall</button>
-          <button id="blindPositionBtn" type="button">Position</button>
-          <button id="blindGameBtn" type="button">Game</button>
+        <div id="blindButtons" class="blind-buttons">
+          <button id="blindSquareColorsBtn" type="button" data-blind-mode="square-colors">Square Colors</button>
+          <button id="blindMovementsBtn" type="button" data-blind-mode="movements">Movements</button>
+          <button id="blindCheckBtn" type="button" data-blind-mode="check">Checks</button>
+          <button id="blindMatingBtn" type="button" data-blind-mode="mating">Mating</button>
+          <button id="blindPositionRecallBtn" type="button" data-blind-mode="position-recall">Position Recall</button>
+          <button id="blindPositionBtn" type="button" data-blind-mode="position">Position</button>
+          <button id="blindGameBtn" type="button" data-blind-mode="game-drill">Game</button>
         </div>
         <div id="blindMain" class="blind-main">
           <div class="blind-stats">
-            <div><strong>Progress:</strong> <span id="blindProgress">-</span></div>
-            <div><strong id="blindCorrectLabel">Correct:</strong> <span id="blindCorrect">0</span></div>
+            <div class="blind-score"><strong>Progress:</strong> <span id="blindProgress">-</span></div>
+            <div class="blind-score"><strong id="blindCorrectLabel">Correct:</strong> <span id="blindCorrect">0</span></div>
             <div><strong>Time:</strong> <span id="blindTimer">00:00</span></div>
           </div>
           <div id="blindPrompt" class="blind-prompt">-</div>
+        </div>
+        <div id="positionRecallTools" class="position-recall-tools" hidden>
+          <div id="positionRecallPalette" class="position-recall-palette"></div>
+          <div class="position-recall-actions">
+            <button id="positionRecallTrashBtn" type="button" aria-pressed="false">Trash</button>
+            <button id="positionRecallCheckBtn" type="button">Confirm</button>
+            <button id="positionRecallClearBtn" type="button">Clear Board</button>
+          </div>
         </div>
         <div id="blindInputFeedback" class="blind-input-feedback" hidden>
           <div><strong>Entered:</strong> <span id="blindEntered">-</span></div>
@@ -309,8 +317,6 @@ app.innerHTML = `
       <div id="squareColorControls" class="square-color-controls" hidden>
         <button id="squareColorWhiteBtn" type="button">White</button>
         <button id="squareColorBlackBtn" type="button">Black</button>
-        <button id="sameDiagonalYesBtn" type="button" hidden>Yes</button>
-        <button id="sameDiagonalNoBtn" type="button" hidden>No</button>
         <button id="blindStopBtn" type="button" hidden>Stop</button>
       </div>
       <div id="lastMoveRow" class="last-move-row">
@@ -437,13 +443,18 @@ const elements = {
   blindGameBtn: document.getElementById('blindGameBtn'),
   blindPositionBtn: document.getElementById('blindPositionBtn'),
   blindSquareColorsBtn: document.getElementById('blindSquareColorsBtn'),
-  blindSameDiagonalBtn: document.getElementById('blindSameDiagonalBtn'),
   blindMovementsBtn: document.getElementById('blindMovementsBtn'),
   blindCheckBtn: document.getElementById('blindCheckBtn'),
   blindMatingBtn: document.getElementById('blindMatingBtn'),
+  blindButtons: document.getElementById('blindButtons'),
   blindPositionRecallBtn: document.getElementById('blindPositionRecallBtn'),
   blindPrompt: document.getElementById('blindPrompt'),
   blindMain: document.getElementById('blindMain'),
+  positionRecallTools: document.getElementById('positionRecallTools'),
+  positionRecallPalette: document.getElementById('positionRecallPalette'),
+  positionRecallTrashBtn: document.getElementById('positionRecallTrashBtn'),
+  positionRecallCheckBtn: document.getElementById('positionRecallCheckBtn'),
+  positionRecallClearBtn: document.getElementById('positionRecallClearBtn'),
   blindInputFeedback: document.getElementById('blindInputFeedback'),
   blindEntered: document.getElementById('blindEntered'),
   blindMissing: document.getElementById('blindMissing'),
@@ -464,8 +475,6 @@ const elements = {
   squareColorControls: document.getElementById('squareColorControls'),
   squareColorWhiteBtn: document.getElementById('squareColorWhiteBtn'),
   squareColorBlackBtn: document.getElementById('squareColorBlackBtn'),
-  sameDiagonalYesBtn: document.getElementById('sameDiagonalYesBtn'),
-  sameDiagonalNoBtn: document.getElementById('sameDiagonalNoBtn'),
   blindStopBtn: document.getElementById('blindStopBtn'),
   lastMoveRow: document.getElementById('lastMoveRow'),
   gameDrillPauseBtn: document.getElementById('gameDrillPauseBtn'),
@@ -488,6 +497,7 @@ const movementPieceButtons = Array.from(document.querySelectorAll('[data-movemen
 const followModeButtons = Array.from(document.querySelectorAll('[data-follow-mode]'));
 
 const SETTINGS_KEY = 'blindfold_chess_settings_v1';
+const POSITION_RECALL_SEEN_KEY = 'blind_position_recall_seen_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
 const SQUARE_COLOR_STATS_KEY = 'blind_square_color_stats_v1';
@@ -837,8 +847,9 @@ const state = {
     positionRecallHideTimerId: null,
     positionRecallTargetPieces: [],
     positionRecallPlacedPieces: new Map(),
-    positionRecallOrder: [],
-    positionRecallIndex: 0,
+    positionRecallSelectedIndex: null,
+    positionRecallSelectedPiece: null,
+    positionRecallTrashMode: false,
     positionIndex: null,
     gameIndex: null,
     gamePrefixMoves: [],
@@ -1959,6 +1970,10 @@ const ground = Chessground(elements.board, {
   },
   selectable: {
     enabled: true
+  },
+  events: {
+    change: onBoardChange,
+    select: onBoardSelect
   }
 });
 
@@ -2145,11 +2160,13 @@ function updateBoard() {
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors'
     && boardRevealActive;
-  const boardHidden = (state.sessionMode === 'blind-puzzles' && !boardRevealActive)
-    || (state.displayMode === 'no-board' && !boardRevealActive);
+  const recall = isPositionRecallMode();
+  const boardHidden = recall
+    ? state.blindPuzzles.positionRecallStage === 'hide'
+    : !boardRevealActive && (state.sessionMode === 'blind-puzzles' || state.displayMode === 'no-board');
   const suppressVisualMarks = shouldSuppressVisualMarks();
   elements.boardShell.classList.toggle('is-hidden', boardHidden);
-  elements.boardShell.classList.toggle('is-blind-hidden', state.sessionMode === 'blind-puzzles' && boardHidden);
+  elements.boardShell.classList.toggle('is-blind-hidden', state.sessionMode === 'blind-puzzles' && !recall && boardHidden);
   syncRevealButtonUi();
 
   const boardGame = getBoardGame();
@@ -2162,7 +2179,7 @@ function updateBoard() {
     ? transformed
     : new Map(Object.entries(transformed ?? {}));
   if (isPositionRecallMode()) {
-    if (state.blindPuzzles.positionRecallStage === 'show') {
+    if (state.revealPosition || state.blindPuzzles.positionRecallStage === 'show') {
       const shown = new Map();
       for (const piece of state.blindPuzzles.positionRecallTargetPieces) {
         shown.set(piece.square, { color: piece.color, role: piece.role });
@@ -2180,6 +2197,7 @@ function updateBoard() {
 
   const turnColor = boardGame.turn() === 'w' ? 'white' : 'black';
   const boardOrientation = state.boardOrientation;
+  const positionRecallAnswerMode = canEditPositionRecall();
   const movableColor = (state.sessionMode === 'puzzle' || followMode)
     ? undefined
     : (reviewLocked
@@ -2206,20 +2224,27 @@ function updateBoard() {
       custom: customHighlights
     },
     movable: {
-      free: false,
-      color: boardInputEnabled ? movableColor : undefined,
-      showDests: !suppressVisualMarks && shouldShowAnyMoveDots(),
-      dests: (state.sessionMode === 'puzzle' || followMode || reviewLocked) ? new Map() : toDests(boardGame),
+      free: positionRecallAnswerMode,
+      color: positionRecallAnswerMode ? 'both' : (boardInputEnabled ? movableColor : undefined),
+      showDests: positionRecallAnswerMode ? false : (!suppressVisualMarks && shouldShowAnyMoveDots()),
+      dests: positionRecallAnswerMode
+        ? new Map()
+        : ((state.sessionMode === 'puzzle' || followMode || reviewLocked) ? new Map() : toDests(boardGame)),
       events: {
         after: onBoardMove
       }
     },
     draggable: {
-      enabled: state.sessionMode !== 'puzzle' && !followMode && boardInputEnabled,
-      showGhost: true
+      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !followMode && boardInputEnabled),
+      showGhost: true,
+      deleteOnDropOff: positionRecallAnswerMode
     },
     selectable: {
-      enabled: state.sessionMode !== 'puzzle' && !followMode && !reviewLocked && boardInputEnabled
+      enabled: positionRecallAnswerMode || (state.sessionMode !== 'puzzle' && !followMode && !reviewLocked && boardInputEnabled)
+    },
+    events: {
+      change: onBoardChange,
+      select: onBoardSelect
     },
     check: suppressVisualMarks ? false : boardGame.inCheck(),
     lastMove: suppressVisualMarks ? undefined : lastMoveSquares(boardGame),
@@ -2241,6 +2266,7 @@ function shouldSuppressVisualMarks() {
 }
 
 function syncRevealButtonUi() {
+  elements.revealBtn.hidden = isPositionRecallMode() && state.blindPuzzles.running;
   elements.revealBtn.classList.toggle('is-on', state.revealPosition);
   if (state.sessionMode === 'puzzle' && state.puzzle) {
     elements.revealBtn.title = state.revealPosition ? 'Hide puzzle start position' : 'Show puzzle start position';
@@ -2386,9 +2412,7 @@ function onBlindBoardClick(event) {
   if (!(event instanceof MouseEvent)) {
     return;
   }
-  if (isPositionRecallMode()
-    && state.blindPuzzles.running
-    && state.blindPuzzles.positionRecallStage === 'answer') {
+  if (canEditPositionRecall()) {
     const squareRecall = ground.getKeyAtDomPos([event.clientX, event.clientY]);
     if (squareRecall) {
       handlePositionRecallBoardClick(squareRecall);
@@ -2438,6 +2462,43 @@ function onBlindBoardClick(event) {
   if (clickedOwnPiece && reselectMoves.length) {
     setBlindClickFrom(square);
   }
+}
+
+function onBoardSelect(square) {
+  if (!isBoardSquare(square)) {
+    return;
+  }
+  if (!canEditPositionRecall()) {
+    return;
+  }
+  const shouldRemove = state.blindPuzzles.positionRecallPlacedPieces.has(square)
+    && state.blindPuzzles.positionRecallTrashMode;
+  if (!shouldRemove) {
+    return;
+  }
+  removePositionRecallPiece(square);
+  ground.selectSquare(null);
+}
+
+function onBoardChange() {
+  if (!canEditPositionRecall()) {
+    return;
+  }
+  const removedSquares = [];
+  for (const square of state.blindPuzzles.positionRecallPlacedPieces.keys()) {
+    if (!ground.state.pieces.has(square)) {
+      removedSquares.push(square);
+    }
+  }
+  if (!removedSquares.length) {
+    return;
+  }
+  for (const square of removedSquares) {
+    state.blindPuzzles.positionRecallPlacedPieces.delete(square);
+  }
+  state.blindPuzzles.asked = state.blindPuzzles.positionRecallPlacedPieces.size;
+  state.blindPuzzles.positionRecallTrashMode = false;
+  updateAll();
 }
 
 function getBoardGame() {
@@ -3617,8 +3678,9 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.positionRecallStage = 'idle';
   state.blindPuzzles.positionRecallTargetPieces = [];
   state.blindPuzzles.positionRecallPlacedPieces = new Map();
-  state.blindPuzzles.positionRecallOrder = [];
-  state.blindPuzzles.positionRecallIndex = 0;
+  state.blindPuzzles.positionRecallSelectedIndex = null;
+  state.blindPuzzles.positionRecallSelectedPiece = null;
+  state.blindPuzzles.positionRecallTrashMode = false;
   state.blindPuzzles.positionIndex = null;
   state.blindPuzzles.gameIndex = null;
   state.blindPuzzles.gamePrefixMoves = [];
@@ -3703,10 +3765,17 @@ function renderBlindMovementFeedback(mode) {
 function updateBlindPanel() {
   const active = state.sessionMode === 'blind-puzzles';
   elements.blindPanel.hidden = !active;
+  const recall = isPositionRecallMode();
+  const mode = active ? state.blindPuzzles.mode : null;
+  const selectedMode = isBlindMattingModeValue(mode) ? 'mating' : mode;
+  for (const button of elements.blindButtons.children) {
+    button.hidden = !!selectedMode && button.dataset.blindMode !== selectedMode;
+  }
+  elements.blindPanel.classList.toggle('position-recall-layout', recall);
+  if (!recall) elements.positionRecallTools.hidden = true;
   if (!active) {
     elements.blindPanel.classList.remove('square-color-layout');
-  elements.blindPanel.classList.remove('same-diagonal-layout');
-  elements.blindPanel.classList.remove('movement-layout');
+    elements.blindPanel.classList.remove('movement-layout');
     elements.blindPanel.classList.remove('check-layout');
     elements.blindPanel.classList.remove('position-layout');
     elements.blindPanel.classList.remove('matting-layout');
@@ -3720,7 +3789,6 @@ function updateBlindPanel() {
   elements.blindMain.hidden = !bp.mode;
   if (!bp.mode) {
     elements.blindPanel.classList.remove('square-color-layout');
-    elements.blindPanel.classList.remove('same-diagonal-layout');
     elements.blindPanel.classList.remove('movement-layout');
     elements.blindPanel.classList.remove('check-layout');
     elements.blindPanel.classList.remove('position-layout');
@@ -3730,7 +3798,6 @@ function updateBlindPanel() {
     return;
   }
   elements.blindPanel.classList.toggle('square-color-layout', bp.mode === 'square-colors');
-  elements.blindPanel.classList.toggle('same-diagonal-layout', bp.mode === 'same-diagonal');
   elements.blindPanel.classList.toggle('movement-layout', bp.mode === 'movements');
   elements.blindPanel.classList.toggle('check-layout', bp.mode === 'check');
   elements.blindPanel.classList.toggle('position-layout', bp.mode === 'position');
@@ -3765,11 +3832,10 @@ function updateBlindPanel() {
     return;
   }
   if (bp.mode === 'position-recall') {
-    elements.blindPrompt.textContent = positionRecallPromptText();
-    elements.blindProgress.textContent = `${bp.asked}/${bp.total}`;
-    elements.blindCorrect.textContent = `${bp.correct}/${bp.total}`;
+    elements.blindPrompt.textContent = '';
     elements.blindTimer.textContent = formatBlindTime(bp.elapsedMs);
     elements.blindInputFeedback.hidden = true;
+    renderPositionRecallTools();
     return;
   }
   if (bp.mode === 'game-drill') {
@@ -3971,52 +4037,175 @@ function randomInnerSquare() {
   return `${file}${rank}`;
 }
 
-function randomPositionRecallPieces(count) {
-  const total = Math.max(2, Math.min(32, Math.floor(Number(count) || 8)));
-  const pieces = [];
-  const usedSquares = new Set();
-  const kingUsed = { white: false, black: false };
-  const roles = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
-  while (pieces.length < total) {
-    const square = randomSquare();
-    if (usedSquares.has(square)) {
-      continue;
-    }
-    const color = Math.random() < 0.5 ? 'white' : 'black';
-    const nonKingRoles = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
-    const rolePool = kingUsed[color] ? nonKingRoles : roles;
-    const role = rolePool[Math.floor(Math.random() * rolePool.length)] ?? 'pawn';
-    if (role === 'king') {
-      kingUsed[color] = true;
-    }
-    usedSquares.add(square);
-    pieces.push({ square, color, role });
+const positionRecallSeen = readLocalJson(POSITION_RECALL_SEEN_KEY) ?? {};
+const positionRecallSnapshots = new WeakMap();
+const positionRecallPracticeGames = POSITION_RECALL_GAMES.map((line) => line.split(' '));
+
+function getPositionRecallSnapshots(moves) {
+  if (positionRecallSnapshots.has(moves)) {
+    return positionRecallSnapshots.get(moves);
   }
-  return pieces;
+  const game = new Chess();
+  const snapshots = [game.fen()];
+  for (const move of moves) {
+    game.move(move);
+    snapshots.push(game.fen());
+  }
+  positionRecallSnapshots.set(moves, snapshots);
+  return snapshots;
+}
+
+function randomPositionRecallPieces(count) {
+  const games = [...state.followGame.games.map((game) => game.moveSans), ...positionRecallPracticeGames];
+  const candidates = [...new Set(games.flatMap(getPositionRecallSnapshots)
+    .map((fen) => fen.split(' ')[0])
+    .filter((placement) => placement.replace(/[^a-z]/gi, '').length === count))];
+  const seen = new Set(positionRecallSeen[count]);
+  let available = candidates.filter((placement) => !seen.has(placement));
+  if (!available.length) {
+    const last = positionRecallSeen[count].at(-1);
+    seen.clear();
+    available = candidates.length > 1 ? candidates.filter((placement) => placement !== last) : candidates;
+  }
+  const placement = available[Math.floor(Math.random() * available.length)];
+  seen.add(placement);
+  positionRecallSeen[count] = [...seen];
+  writeLocalJson(POSITION_RECALL_SEEN_KEY, positionRecallSeen);
+  return [...fenToPieces(placement)].map(([square, piece]) => ({ square, ...piece }));
 }
 
 function isPositionRecallMode() {
   return state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'position-recall';
 }
 
-function positionRecallPromptText() {
-  const bp = state.blindPuzzles;
-  if (bp.positionRecallStage === 'show') {
-    return 'Memorize this position.';
+function canEditPositionRecall() {
+  return isPositionRecallMode() && state.blindPuzzles.running && state.blindPuzzles.positionRecallStage === 'answer';
+}
+
+function positionRecallPaletteRows() {
+  const roles = ['king', 'queen', 'rook', 'bishop', 'knight', 'pawn'];
+  return ['white', 'black'].map((color) => ({
+    color,
+    pieces: roles.map((role) => ({ color, role }))
+  }));
+}
+
+function syncPositionRecallTrashButton() {
+  const active = !!state.blindPuzzles.positionRecallTrashMode;
+  elements.positionRecallTrashBtn.classList.toggle('is-on', active);
+  elements.positionRecallTrashBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+}
+
+function renderPositionRecallTools() {
+  const showTools = canEditPositionRecall();
+  elements.positionRecallTools.hidden = !showTools;
+  if (!showTools) {
+    elements.positionRecallPalette.innerHTML = '';
+    state.blindPuzzles.positionRecallTrashMode = false;
+    syncPositionRecallTrashButton();
+    return;
   }
-  if (bp.positionRecallStage === 'hide') {
-    return 'Position hidden. Wait...';
+  syncPositionRecallTrashButton();
+  const rows = positionRecallPaletteRows();
+  const selectedIndex = Number.isInteger(state.blindPuzzles.positionRecallSelectedIndex)
+    ? state.blindPuzzles.positionRecallSelectedIndex
+    : -1;
+  let nextIndex = 0;
+  elements.positionRecallPalette.innerHTML = rows
+    .map((row) => {
+      const content = row.pieces
+        .map((piece) => {
+          const index = nextIndex;
+          nextIndex += 1;
+          return `
+            <button
+              class="position-recall-piece position-recall-piece-${piece.color}${index === selectedIndex ? ' is-selected' : ''}"
+              type="button"
+              aria-pressed="${index === selectedIndex}"
+              data-piece-index="${index}"
+              data-piece-color="${piece.color}"
+              data-piece-role="${piece.role}"
+              title="${piece.color} ${piece.role}"
+              aria-label="${piece.color} ${piece.role}"
+            ><span class="position-recall-piece-art cg-wrap"><piece class="${piece.role} ${piece.color}"></piece></span></button>
+          `;
+        })
+        .join('');
+      return `<div class="position-recall-palette-row">${content}</div>`;
+    })
+    .join('');
+}
+
+function placePositionRecallPiece(square, piece) {
+  if (!canEditPositionRecall()) {
+    return false;
   }
-  if (bp.positionRecallStage === 'answer') {
-    const idx = bp.positionRecallIndex;
-    const total = bp.positionRecallOrder.length;
-    const nextPiece = bp.positionRecallOrder[idx];
-    if (!nextPiece) {
-      return 'Done.';
+  if (!isBoardSquare(square)) {
+    return false;
+  }
+  if (state.blindPuzzles.positionRecallPlacedPieces.has(square)) {
+    elements.statusText.textContent = `Square ${square} is already occupied.`;
+    return false;
+  }
+  state.blindPuzzles.positionRecallPlacedPieces.set(square, {
+    color: piece.color,
+    role: piece.role
+  });
+  state.blindPuzzles.positionRecallTrashMode = false;
+  state.blindPuzzles.asked = state.blindPuzzles.positionRecallPlacedPieces.size;
+  updateAll();
+  return true;
+}
+
+function removePositionRecallPiece(square) {
+  if (!canEditPositionRecall()) {
+    return false;
+  }
+  if (!state.blindPuzzles.positionRecallPlacedPieces.has(square)) {
+    return false;
+  }
+  state.blindPuzzles.positionRecallPlacedPieces.delete(square);
+  state.blindPuzzles.positionRecallTrashMode = false;
+  state.blindPuzzles.asked = state.blindPuzzles.positionRecallPlacedPieces.size;
+  updateAll();
+  return true;
+}
+
+function clearPositionRecallPlacement() {
+  if (!canEditPositionRecall()) {
+    return;
+  }
+  state.blindPuzzles.positionRecallPlacedPieces = new Map();
+  state.blindPuzzles.positionRecallSelectedIndex = null;
+  state.blindPuzzles.positionRecallSelectedPiece = null;
+  state.blindPuzzles.positionRecallTrashMode = false;
+  state.blindPuzzles.asked = 0;
+  state.blindPuzzles.correct = 0;
+  updateAll();
+}
+
+function checkPositionRecallPlacement() {
+  if (!canEditPositionRecall()) {
+    return;
+  }
+  const targetPieces = state.blindPuzzles.positionRecallTargetPieces;
+  const placedPieces = state.blindPuzzles.positionRecallPlacedPieces;
+  if (placedPieces.size !== targetPieces.length) {
+    elements.statusText.textContent = `Use exactly ${targetPieces.length} pieces (${placedPieces.size} placed).`;
+    return;
+  }
+
+  let matched = 0;
+  for (const target of targetPieces) {
+    const placed = placedPieces.get(target.square);
+    if (placed && placed.color === target.color && placed.role === target.role) {
+      matched += 1;
     }
-    return `Place ${figurineForBoardPiece(nextPiece.color, nextPiece.role)} (${idx + 1}/${total})`;
   }
-  return '-';
+  state.blindPuzzles.asked = placedPieces.size;
+  state.blindPuzzles.correct = matched;
+  finishBlindPuzzleGeneric(matched === targetPieces.length, `Placed ${matched}/${targetPieces.length} pieces correctly.`);
+  updateAll();
 }
 
 function squareToCoords(square) {
@@ -4259,9 +4448,8 @@ function shouldShowBlindMoveControls() {
 }
 
 function shouldShowBlindVoiceControls() {
-  return shouldShowBlindMoveControls()
-    || (state.sessionMode === 'blind-puzzles'
-      && (state.blindPuzzles.mode === 'square-colors' || state.blindPuzzles.mode === 'same-diagonal'));
+  return shouldShowBlindMoveControls() || canEditPositionRecall()
+    || (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'square-colors');
 }
 
 function isBlindStructuredLastMoveMode() {
@@ -4513,38 +4701,6 @@ function askNextSquareColorQuestion() {
   speakBlindPrompt(sq);
 }
 
-function areSquaresOnSameDiagonal(a, b) {
-  const ac = squareToCoords(a);
-  const bc = squareToCoords(b);
-  return Math.abs(ac.x - bc.x) === Math.abs(ac.y - bc.y);
-}
-
-function pickSameDiagonalQuestion() {
-  const from = randomSquare();
-  const sameDiagSquares = ALL_BOARD_SQUARES.filter((sq) => sq !== from && areSquaresOnSameDiagonal(from, sq));
-  const offDiagSquares = ALL_BOARD_SQUARES.filter((sq) => sq !== from && !areSquaresOnSameDiagonal(from, sq));
-  const wantSame = Math.random() < 0.5 && sameDiagSquares.length > 0;
-  const pool = wantSame ? sameDiagSquares : offDiagSquares;
-  const to = pool[Math.floor(Math.random() * pool.length)] ?? from;
-  return {
-    from,
-    to,
-    answer: wantSame ? 'yes' : 'no'
-  };
-}
-
-function askNextSameDiagonalQuestion() {
-  const q = pickSameDiagonalQuestion();
-  state.blindPuzzles.currentSquare = `${q.from} and ${q.to}`;
-  state.blindPuzzles.currentAnswer = q.answer;
-  state.blindPuzzles.expectedSquares = new Set();
-  state.blindPuzzles.givenSquares = new Set();
-  state.blindPuzzles.attemptedEntries = [];
-  elements.statusText.textContent = 'Answer: yes or no.';
-  updateBlindPanel();
-  speakBlindPrompt(`${q.from} ${q.to}`);
-}
-
 function normalizeVoiceText(raw) {
   return String(raw ?? '').toLowerCase()
     .replace(/[ąćęłńóśżź]/g, (c) => ({ ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ż: 'z', ź: 'z' }[c] ?? c))
@@ -4559,17 +4715,6 @@ function normalizeSquareColorVoice(raw) {
   }
   if (text.includes('czarne') || text.includes('black')) {
     return 'czarne';
-  }
-  return '';
-}
-
-function normalizeYesNoVoice(raw) {
-  const text = normalizeVoiceText(raw);
-  if (/\b(yes|tak)\b/.test(text)) {
-    return 'yes';
-  }
-  if (/\b(no|nie)\b/.test(text)) {
-    return 'no';
   }
   return '';
 }
@@ -4698,47 +4843,12 @@ function applySquareColorAnswer(answer) {
   return true;
 }
 
-function applySameDiagonalAnswer(answer) {
-  if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'same-diagonal' || !state.blindPuzzles.running) {
-    return false;
-  }
-  const normalized = normalizeYesNoVoice(answer);
-  if (!normalized) {
-    elements.statusText.textContent = 'Answer with: yes or no.';
-    return true;
-  }
-  const oneShotActive = state.voiceOneShot;
-  state.blindPuzzles.asked += 1;
-  if (normalized !== state.blindPuzzles.currentAnswer) {
-    finishBlindPuzzleGeneric(false);
-    return true;
-  }
-  state.blindPuzzles.correct += 1;
-  if (state.blindPuzzles.asked >= state.blindPuzzles.total) {
-    finishBlindPuzzleGeneric(true);
-    return true;
-  }
-  askNextSameDiagonalQuestion();
-  if (oneShotActive && state.voiceMode) {
-    setVoiceMode(false);
-  }
-  return true;
-}
-
 function handleSquareColorsVoice(transcript) {
   if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'square-colors' || !state.blindPuzzles.running) {
     return false;
   }
   const answer = normalizeSquareColorVoice(transcript);
   return applySquareColorAnswer(answer);
-}
-
-function handleSameDiagonalVoice(transcript) {
-  if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'same-diagonal' || !state.blindPuzzles.running) {
-    return false;
-  }
-  const answer = normalizeYesNoVoice(transcript);
-  return applySameDiagonalAnswer(answer);
 }
 
 function finishBlindQuestionOrAskNext(nextAsker) {
@@ -5062,10 +5172,37 @@ function submitBlindStop() {
 }
 
 function handleBlindPuzzleVoice(transcript) {
-  if (handleSquareColorsVoice(transcript)) {
+  if (isPositionRecallMode() && state.blindPuzzles.running) {
+    if (canEditPositionRecall()) {
+      const text = normalizeVoiceText(transcript);
+      const color = text.match(/\b(white|black|bial[yae]|czarn[yae])\b/)?.[0];
+      const role = [
+        ['king', /\b(king|krol)\b/],
+        ['queen', /\b(queen|hetman|krolowa)\b/],
+        ['rook', /\b(rook|wieza)\b/],
+        ['bishop', /\b(bishop|goniec|laufer)\b/],
+        ['knight', /\b(knight|skoczek|kon)\b/],
+        ['pawn', /\b(pawn|pion|pionek)\b/]
+      ].find(([, pattern]) => pattern.test(text))?.[0];
+      const ranks = {
+        one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+        jeden: 1, dwa: 2, trzy: 3, cztery: 4, piec: 5, szesc: 6, siedem: 7, osiem: 8
+      };
+      const squares = [...text.matchAll(/\b([a-h])\s*(?:([1-8])|\s+([a-z]+))\b/g)]
+        .map(([, file, digit, word]) => ({ file, rank: digit ?? ranks[word] }))
+        .filter(({ rank }) => rank);
+      const [{ file, rank } = {}] = squares;
+      const square = file && file + rank;
+      if (!color || !role || !square || squares.length !== 1) {
+        elements.statusText.textContent = 'Say the color, piece and square, for example “white knight f3”.';
+      } else if (placePositionRecallPiece(square, { color: /^(white|bial)/.test(color) ? 'white' : 'black', role })
+        && state.voiceOneShot) {
+        setVoiceMode(false);
+      }
+    }
     return true;
   }
-  if (handleSameDiagonalVoice(transcript)) {
+  if (handleSquareColorsVoice(transcript)) {
     return true;
   }
   if (handleBishopVoice(transcript)) {
@@ -5234,37 +5371,26 @@ function positionRecallEnterAnswerStage() {
   }
   state.blindPuzzles.positionRecallStage = 'answer';
   state.blindPuzzles.positionRecallPlacedPieces = new Map();
-  state.blindPuzzles.positionRecallIndex = 0;
-  state.revealPosition = true;
-  elements.statusText.textContent = 'Rebuild the position by clicking squares for shown pieces.';
+  state.blindPuzzles.positionRecallSelectedIndex = null;
+  state.blindPuzzles.positionRecallSelectedPiece = null;
+  state.blindPuzzles.positionRecallTrashMode = false;
+  state.revealPosition = false;
+  elements.statusText.textContent = `Place ${state.blindPuzzles.total} pieces or say “white knight f3” / “biały skoczek f3”.`;
   updateAll();
 }
 
 function handlePositionRecallBoardClick(square) {
-  if (!isPositionRecallMode() || !state.blindPuzzles.running || state.blindPuzzles.positionRecallStage !== 'answer') {
+  if (!canEditPositionRecall()) {
     return;
   }
-  const bp = state.blindPuzzles;
-  const nextPiece = bp.positionRecallOrder[bp.positionRecallIndex];
-  if (!nextPiece) {
+  if (state.blindPuzzles.positionRecallPlacedPieces.has(square)
+    && state.blindPuzzles.positionRecallTrashMode) {
+    removePositionRecallPiece(square);
     return;
   }
-  if (bp.positionRecallPlacedPieces.has(square)) {
-    elements.statusText.textContent = `Square ${square} is already used.`;
-    return;
-  }
-  bp.asked += 1;
-  bp.positionRecallPlacedPieces.set(square, { color: nextPiece.color, role: nextPiece.role });
-  if (square !== nextPiece.square) {
-    bp.attemptedEntries = [{ square, correct: false }];
-    finishBlindPuzzleGeneric(false, `Wrong square for ${figurineForBoardPiece(nextPiece.color, nextPiece.role)}.`);
-    return;
-  }
-  bp.correct += 1;
-  bp.positionRecallIndex += 1;
-  updateAll();
-  if (bp.correct >= bp.total) {
-    finishBlindPuzzleGeneric(true);
+  const selectedPiece = state.blindPuzzles.positionRecallSelectedPiece;
+  if (selectedPiece) {
+    placePositionRecallPiece(square, selectedPiece);
   }
 }
 
@@ -5678,22 +5804,6 @@ function startSquareColors() {
   setVoiceMode(state.voiceOnOtherPuzzles);
 }
 
-function startSameDiagonalPuzzle() {
-  resetBlindPuzzleSession();
-  state.sessionMode = 'blind-puzzles';
-  state.puzzle = null;
-  state.puzzleAutoPlaying = false;
-  state.game = new Chess();
-  state.reviewPly = null;
-  state.blindPuzzles.mode = 'same-diagonal';
-  state.blindPuzzles.running = true;
-  state.blindPuzzles.total = Math.min(64, state.blindQuestionCount);
-  updateAll();
-  startBlindPuzzleTimer();
-  askNextSameDiagonalQuestion();
-  setVoiceMode(state.voiceOnOtherPuzzles);
-}
-
 function startPositionRecallPuzzle() {
   resetBlindPuzzleSession();
   state.sessionMode = 'blind-puzzles';
@@ -5707,11 +5817,11 @@ function startPositionRecallPuzzle() {
   state.blindPuzzles.asked = 0;
   state.blindPuzzles.correct = 0;
   state.blindPuzzles.positionRecallTargetPieces = randomPositionRecallPieces(state.blindPuzzles.total);
-  state.blindPuzzles.positionRecallOrder = state.blindPuzzles.positionRecallTargetPieces.slice();
   state.blindPuzzles.positionRecallPlacedPieces = new Map();
-  state.blindPuzzles.positionRecallIndex = 0;
+  state.blindPuzzles.positionRecallSelectedIndex = null;
+  state.blindPuzzles.positionRecallSelectedPiece = null;
   state.blindPuzzles.positionRecallStage = 'show';
-  state.revealPosition = true;
+  state.revealPosition = false;
   updateAll();
   startBlindPuzzleTimer();
   elements.statusText.textContent = `Memorize position (${state.positionRecallShowSec}s).`;
@@ -6462,6 +6572,29 @@ function applyPlayerMove(text) {
 }
 
 function onBoardMove(from, to) {
+  if (canEditPositionRecall()) {
+    const placed = state.blindPuzzles.positionRecallPlacedPieces.get(from);
+    if (!placed) {
+      updateBoard();
+      return;
+    }
+    if (from === to) {
+      updateBoard();
+      return;
+    }
+    if (state.blindPuzzles.positionRecallPlacedPieces.has(to)) {
+      elements.statusText.textContent = `Square ${to} is already occupied.`;
+      updateBoard();
+      return;
+    }
+    state.blindPuzzles.positionRecallPlacedPieces.delete(from);
+    state.blindPuzzles.positionRecallPlacedPieces.set(to, placed);
+    state.blindPuzzles.positionRecallSelectedIndex = null;
+    state.blindPuzzles.positionRecallSelectedPiece = null;
+    state.blindPuzzles.asked = state.blindPuzzles.positionRecallPlacedPieces.size;
+    updateAll();
+    return;
+  }
   if (state.sessionMode === 'game' && !state.gameStarted) {
     elements.statusText.textContent = 'Press New Game to start.';
     updateBoard();
@@ -7147,7 +7280,7 @@ function updateMainControlsVisibility() {
   const inBlind = state.sessionMode === 'blind-puzzles';
   const inFollow = state.sessionMode === 'follow-game';
   const blindStructuredLastMove = isBlindStructuredLastMoveMode();
-  const hideMain = inPuzzle;
+  const hideMain = inPuzzle || (isPositionRecallMode() && state.blindPuzzles.running);
   const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
   const inGameDrill = inBlind && state.blindPuzzles.mode === 'game-drill';
@@ -7223,25 +7356,19 @@ function updateMainControlsVisibility() {
 function updateSquareColorControlsVisibility() {
   const squareColors = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'square-colors';
-  const sameDiagonal = state.sessionMode === 'blind-puzzles'
-    && state.blindPuzzles.mode === 'same-diagonal';
   const stopOnly = state.sessionMode === 'blind-puzzles'
     && (state.blindPuzzles.mode === 'check'
       || (state.blindPuzzles.mode === 'movements'
         && state.blindPuzzles.movementPiece === 'N'
         && state.blindPuzzles.movementVariant !== 'route'));
-  const visible = (squareColors || sameDiagonal || stopOnly) && !elements.statusRow.hidden;
+  const visible = (squareColors || stopOnly) && !elements.statusRow.hidden;
   elements.squareColorControls.hidden = !visible;
   elements.squareColorWhiteBtn.hidden = !squareColors;
   elements.squareColorBlackBtn.hidden = !squareColors;
-  elements.sameDiagonalYesBtn.hidden = !sameDiagonal;
-  elements.sameDiagonalNoBtn.hidden = !sameDiagonal;
   elements.blindStopBtn.hidden = !stopOnly;
   const enabled = visible && state.blindPuzzles.running;
   elements.squareColorWhiteBtn.disabled = !enabled || !squareColors;
   elements.squareColorBlackBtn.disabled = !enabled || !squareColors;
-  elements.sameDiagonalYesBtn.disabled = !enabled || !sameDiagonal;
-  elements.sameDiagonalNoBtn.disabled = !enabled || !sameDiagonal;
   elements.blindStopBtn.disabled = !enabled || !stopOnly;
 }
 
@@ -7431,6 +7558,7 @@ function ensureVoiceRecognition() {
     }
     const transcript = event.results[event.results.length - 1][0].transcript.trim();
     if (handleBlindPuzzleVoice(transcript)) {
+      if (!state.voiceMode) return;
       elements.voiceStatus.textContent = `Heard: ${transcript}`;
       return;
     }
@@ -8080,6 +8208,12 @@ elements.toggleMovesBtn.addEventListener('click', () => {
 });
 
 elements.revealBtn.addEventListener('click', () => {
+  if (isPositionRecallMode()) {
+    if (state.blindPuzzles.running) return;
+    state.revealPosition = !state.revealPosition;
+    updateAll();
+    return;
+  }
   if (state.sessionMode === 'puzzle' && state.puzzle) {
     if (!state.revealPosition) {
       state.puzzleRevealPrevView = state.puzzleViewIndex;
@@ -8216,9 +8350,6 @@ elements.blindPositionBtn.addEventListener('click', () => {
 elements.blindSquareColorsBtn.addEventListener('click', () => {
   startSquareColors();
 });
-elements.blindSameDiagonalBtn.addEventListener('click', () => {
-  startSameDiagonalPuzzle();
-});
 elements.blindMovementsBtn.addEventListener('click', () => {
   startMovementsPuzzle();
 });
@@ -8237,14 +8368,25 @@ elements.squareColorWhiteBtn.addEventListener('click', () => {
 elements.squareColorBlackBtn.addEventListener('click', () => {
   applySquareColorAnswer('czarne');
 });
-elements.sameDiagonalYesBtn.addEventListener('click', () => {
-  applySameDiagonalAnswer('yes');
-});
-elements.sameDiagonalNoBtn.addEventListener('click', () => {
-  applySameDiagonalAnswer('no');
-});
 elements.blindStopBtn.addEventListener('click', () => {
   submitBlindStop();
+});
+elements.positionRecallTrashBtn.addEventListener('click', () => {
+  if (!canEditPositionRecall()) {
+    return;
+  }
+  state.blindPuzzles.positionRecallTrashMode = !state.blindPuzzles.positionRecallTrashMode;
+  if (state.blindPuzzles.positionRecallTrashMode) {
+    state.blindPuzzles.positionRecallSelectedIndex = null;
+    state.blindPuzzles.positionRecallSelectedPiece = null;
+  }
+  updateAll();
+});
+elements.positionRecallClearBtn.addEventListener('click', () => {
+  clearPositionRecallPlacement();
+});
+elements.positionRecallCheckBtn.addEventListener('click', () => {
+  checkPositionRecallPlacement();
 });
 elements.gameDrillPauseBtn.addEventListener('click', () => {
   toggleGameDrillReplayPause();
@@ -8276,6 +8418,74 @@ elements.movesBody.addEventListener('click', (event) => {
 });
 
 elements.board.addEventListener('click', onBlindBoardClick);
+let recallDrag;
+let suppressRecallPaletteClick = false;
+elements.positionRecallPalette.addEventListener('click', (event) => {
+  if (suppressRecallPaletteClick && event.detail) return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('.position-recall-piece');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const color = button.dataset.pieceColor;
+  const role = button.dataset.pieceRole;
+  if (!color || !role) {
+    return;
+  }
+  const rawIndex = Number(button.dataset.pieceIndex);
+  const index = Number.isInteger(rawIndex) ? rawIndex : -1;
+  const current = state.blindPuzzles.positionRecallSelectedPiece;
+  const currentIndex = Number.isInteger(state.blindPuzzles.positionRecallSelectedIndex)
+    ? state.blindPuzzles.positionRecallSelectedIndex
+    : -1;
+  if (current && currentIndex === index && current.color === color && current.role === role) {
+    state.blindPuzzles.positionRecallSelectedIndex = null;
+    state.blindPuzzles.positionRecallSelectedPiece = null;
+  } else {
+    state.blindPuzzles.positionRecallSelectedIndex = index;
+    state.blindPuzzles.positionRecallSelectedPiece = { color, role };
+  }
+  state.blindPuzzles.positionRecallTrashMode = false;
+  updateAll();
+});
+elements.positionRecallPalette.addEventListener('pointerdown', (event) => {
+  const button = event.target.closest('.position-recall-piece');
+  if (!button || !canEditPositionRecall() || !event.isPrimary || event.button !== 0) return;
+  suppressRecallPaletteClick = false;
+  recallDrag = { id: event.pointerId, button, x: event.clientX, y: event.clientY, ghost: null };
+  button.setPointerCapture(event.pointerId);
+});
+elements.positionRecallPalette.addEventListener('pointermove', (event) => {
+  if (recallDrag?.id !== event.pointerId) return;
+  if (!recallDrag.ghost) {
+    if (Math.hypot(event.clientX - recallDrag.x, event.clientY - recallDrag.y) < 6) return;
+    recallDrag.ghost = recallDrag.button.cloneNode(true);
+    recallDrag.ghost.classList.add('position-recall-drag-ghost');
+    recallDrag.ghost.setAttribute('aria-hidden', 'true');
+    recallDrag.ghost.tabIndex = -1;
+    document.body.append(recallDrag.ghost);
+  }
+  recallDrag.ghost.style.left = event.clientX + 'px';
+  recallDrag.ghost.style.top = event.clientY + 'px';
+});
+function endPositionRecallDrag(event) {
+  if (recallDrag?.id !== event.pointerId) return;
+  const { button, ghost } = recallDrag;
+  recallDrag = null;
+  if (!ghost) return;
+  ghost.remove();
+  if (event.type !== 'pointerup' || !canEditPositionRecall()) return;
+  suppressRecallPaletteClick = true;
+  const square = ground.getKeyAtDomPos([event.clientX, event.clientY]);
+  if (square) {
+    placePositionRecallPiece(square, { color: button.dataset.pieceColor, role: button.dataset.pieceRole });
+  }
+}
+elements.positionRecallPalette.addEventListener('pointerup', endPositionRecallDrag);
+document.addEventListener('lostpointercapture', endPositionRecallDrag);
 
 elements.openConfigBtn.addEventListener('click', openConfigModal);
 elements.closeConfigBtn.addEventListener('click', closeConfigModal);
