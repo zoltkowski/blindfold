@@ -203,7 +203,7 @@ app.innerHTML = `
           </label>
         </div>
         <div id="followGameTitle" class="follow-title">-</div>
-        <div id="followGameMeta" class="follow-meta">-</div>
+        <div id="followGameMeta" class="follow-meta" hidden>-</div>
         <div id="followGameMoves" class="follow-moves">-</div>
         <div id="followBrowseActions" class="follow-browse-actions">
         </div>
@@ -3373,20 +3373,14 @@ function updateFollowPanel() {
   elements.followGameTitle.textContent = current.title;
   elements.followGameMeta.textContent = metaParts.join(' - ');
 
+  elements.followGameMoves.classList.add('last-move-text');
   elements.followGameMoves.textContent = '';
   if (shownPlies <= 0) {
     elements.followGameMoves.textContent = '-';
-  } else if (state.followGame.mode === 'browse') {
+  } else {
     const lastSan = current.moveSans[shownPlies - 1] ?? '';
     const rendered = formatSanForDisplay(lastSan);
     elements.followGameMoves.textContent = shownPlies % 2 === 0 ? `... ${rendered}` : rendered;
-  } else {
-    appendSanMovesToNode(
-      elements.followGameMoves,
-      current.moveSans.slice(0, shownPlies),
-      0,
-      { activeAbsPly: shownPlies - 1 }
-    );
   }
 
 }

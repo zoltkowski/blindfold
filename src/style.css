@@ -334,6 +334,10 @@ button:hover {
   min-height: calc(1.35em * 3);
 }
 
+.follow-moves.last-move-text {
+  min-height: 1.9rem;
+}
+
 .follow-browse-actions {
   display: flex;
   flex-wrap: wrap;
