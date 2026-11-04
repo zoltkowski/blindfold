@@ -333,7 +333,8 @@ app.innerHTML = `
       <div id="movesPanel" class="moves-panel">
         <button id="toggleMovesBtn" type="button" aria-label="Show moves" title="Show moves">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-            <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"></path>
+            <path d="M2.5 4 6 6 2.5 8ZM2.5 10 6 12 2.5 14ZM2.5 16 6 18 2.5 20Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
+            <path d="M9.5 6h12m-12 6h12m-12 6h12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
           </svg>
         </button>
         <a id="openPuzzleLinkBtn" href="#" target="_blank" rel="noopener noreferrer" hidden aria-label="Open puzzle on Lichess" title="Open puzzle on Lichess">
