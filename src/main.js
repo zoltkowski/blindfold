@@ -7006,10 +7006,12 @@ function updateMovesList() {
   let startPly = 0;
   let viewedPly = hist.length;
   if (state.sessionMode === 'puzzle' && state.puzzle) {
-    const solvedSolutionCount = Math.max(0, state.puzzle.solutionIndex - state.puzzle.contextMoves.length);
-    const solvedSolutionSans = state.puzzle.solutionSans.slice(0, solvedSolutionCount);
-    hist = [...state.puzzle.prefixSans, ...state.puzzle.contextSans, ...solvedSolutionSans];
-    startPly = 0;
+    const puzzle = state.puzzle;
+    const solvedSolutionCount = Math.max(0, puzzle.solutionIndex - puzzle.contextMoves.length);
+    const solvedSolutionSans = puzzle.solutionSans.slice(0, solvedSolutionCount);
+    const prefix = puzzle.solved ? puzzle.prefixSans : [];
+    hist = [...prefix, ...puzzle.contextSans, ...solvedSolutionSans];
+    startPly = puzzle.solved ? 0 : puzzle.contextStartPly;
     viewedPly = state.puzzleViewIndex;
   } else if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'game-drill') {
     const prefixSans = gameDrillPrefixMoves().map((mv) => mv.san);
@@ -7025,7 +7027,7 @@ function updateMovesList() {
     elements.movesBody.textContent = '-';
     return;
   }
-  const activeAbsPly = viewedPly > 0 ? (startPly + viewedPly - 1) : null;
+  const activeAbsPly = viewedPly > 0 ? viewedPly - 1 : null;
 
   const frag = document.createDocumentFragment();
   for (let i = 0; i < hist.length; i += 1) {
