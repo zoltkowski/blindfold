@@ -5384,8 +5384,8 @@ function startBlindPuzzlesMode() {
   state.puzzleAutoPlaying = false;
   state.revealPosition = false;
   clearBlindClickSelection();
+  elements.statusText.textContent = '';
   updateAll();
-  elements.statusText.textContent = 'Choose a puzzle.';
 }
 
 function nextUnsolvedPositionIndex() {
@@ -7571,7 +7571,7 @@ function updateMainControlsVisibility() {
       || (showLastMoveRowInPuzzle && !state.puzzle?.solved)
       || showLastMoveRowInFollow
     );
-  elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
+  elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove || (inBlind && !state.blindPuzzles.mode);
   document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
 }
 
