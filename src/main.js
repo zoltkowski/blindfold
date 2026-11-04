@@ -2753,7 +2753,9 @@ function sanToPolishSpeech(san) {
   } else if (!pieceName) {
     spoken = capture ? `bije ${target}` : `${target}`;
   } else {
-    spoken = capture ? `${pieceName} bije ${target}` : `${pieceName} ${target}`;
+    const originHint = targetMatch ? base.slice(1, targetMatch.index).replace('x', '') : '';
+    const piece = originHint ? `${pieceName} ${originHint},` : pieceName;
+    spoken = capture ? `${piece} bije ${target}` : `${piece} ${target}`;
   }
   if (promotion) {
     spoken += ` promocja ${promotion}`;
