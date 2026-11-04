@@ -315,6 +315,15 @@ button:hover {
   gap: 0.35rem;
 }
 
+.follow-mode-actions {
+  flex-wrap: nowrap;
+}
+
+.follow-mode-actions select {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .follow-actions > button.is-on {
   background: #dfeeda;
   border-color: #94c09d;

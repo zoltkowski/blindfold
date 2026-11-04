@@ -189,7 +189,7 @@ app.innerHTML = `
             <input id="followUploadInput" type="file" accept=".pgn,text/plain" hidden />
           </div>
           <div id="followGameTitle" class="follow-title">-</div>
-          <div class="follow-actions">
+          <div class="follow-actions follow-mode-actions">
             <button id="followModeQuizBtn" type="button" data-follow-mode="quiz">Quiz</button>
             <select id="followQuizAutoColor" title="Computer plays this color in quiz">
               <option value="none">Quiz: both colors</option>
@@ -3363,7 +3363,8 @@ function updateFollowPanel() {
   const hasLoadedGame = !!current;
   elements.followGamePickerRow.hidden = hasLoadedGame;
   elements.followGamePickerActions.hidden = hasLoadedGame;
-  elements.followBrowseActions.hidden = !hasLoadedGame;
+  elements.followBrowseActions.hidden = !hasLoadedGame || state.followGame.mode === 'quiz';
+  elements.followGameMoves.hidden = state.followGame.mode === 'quiz';
   if (!current) {
     elements.followGameTitle.textContent = 'No follow game selected.';
     elements.followGameMeta.textContent = '-';
@@ -6348,7 +6349,14 @@ function updateReviewControls() {
   if (inFollow) {
     const actions = elements.followBrowseActions;
     if (reviewPlayBtn.parentElement !== actions) {
-      actions.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn, toggleMovesBtn);
+      actions.append(reviewPrevBtn, reviewPlayBtn, reviewNextBtn);
+    }
+    if (state.followGame.mode === 'quiz') {
+      if (toggleMovesBtn.previousElementSibling !== elements.followRestartBtn) {
+        elements.followRestartBtn.after(toggleMovesBtn);
+      }
+    } else if (toggleMovesBtn.parentElement !== actions) {
+      actions.append(toggleMovesBtn);
     }
     const browsing = state.followGame.mode === 'browse' && !!state.followGame.current;
     const viewed = state.followGame.shownPlies;
