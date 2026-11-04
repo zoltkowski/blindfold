@@ -858,7 +858,7 @@ const state = {
     gameIndex: null,
     gamePrefixMoves: [],
     gameDrillReplayTimerId: null,
-    gameDrillReplayPaused: false,
+    gameDrillReplayState: 'idle',
     staticPrompt: ''
   },
   positionExercises: [],
@@ -3784,7 +3784,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.positionIndex = null;
   state.blindPuzzles.gameIndex = null;
   state.blindPuzzles.gamePrefixMoves = [];
-  state.blindPuzzles.gameDrillReplayPaused = false;
+  state.blindPuzzles.gameDrillReplayState = 'idle';
   state.blindPuzzles.staticPrompt = '';
   if (wasBlindMode) {
     setVoiceMode(false);
@@ -5799,36 +5799,45 @@ function pauseGameDrillReplayForManualReview() {
   if (!isGameDrillModeActive()) {
     return;
   }
-  if (!state.blindPuzzles.gameDrillReplayTimerId && !state.blindPuzzles.gameDrillReplayPaused) {
-    return;
-  }
   clearGameDrillReplayTimer();
-  state.blindPuzzles.gameDrillReplayPaused = true;
+  if (state.blindPuzzles.gameDrillReplayState === 'playing' && state.speaking) {
+    cancelTtsPlayback();
+  }
+  state.blindPuzzles.gameDrillReplayState = 'review';
 }
 
 function advanceGameDrillReplay() {
-  if (!isGameDrillModeActive() || state.blindPuzzles.gameDrillReplayPaused) {
-    return;
-  }
-  const moves = gameDrillPrefixMoves();
-  const viewed = state.reviewPly ?? moves.length;
-  if (viewed >= moves.length) {
+  if (!isGameDrillModeActive() || state.blindPuzzles.gameDrillReplayState !== 'playing') {
     return;
   }
   if (state.speaking) {
     scheduleGameDrillReplayTick(100);
     return;
   }
+  const moves = gameDrillPrefixMoves();
+  const viewed = state.reviewPly ?? moves.length;
+  if (viewed >= moves.length) {
+    state.blindPuzzles.gameDrillReplayState = 'idle';
+    updateMainControlsVisibility();
+    return;
+  }
   const next = viewed + 1;
   state.reviewPly = next >= moves.length ? null : next;
-  speakMoveIfEnabled(moves[viewed].san);
-  if (next < moves.length) {
-    scheduleGameDrillReplayTick();
-  }
+  const san = moves[viewed].san;
+  speakMoveIfEnabled(san);
+  const pause = next < moves.length ? gameDrillReplayDelayMs() : 0;
+  const speechDelay = state.speaking ? 100 : estimateMoveSpeechMs(san);
+  scheduleGameDrillReplayTick(Math.max(pause, speechDelay));
   updateAll();
 }
 
-function scheduleGameDrillReplayTick(delay = gameDrillReplayDelayMs()) {
+function estimateMoveSpeechMs(san) {
+  const text = state.moveLanguage === 'pl' ? sanToPolishSpeech(san) : sanToEnglishSpeech(san);
+  const rate = Math.max(0.1, Math.min(1.5, Number(state.ttsRate) || 1));
+  return Math.round((320 + 80 * text.length) / rate);
+}
+
+function scheduleGameDrillReplayTick(delay) {
   clearGameDrillReplayTimer();
   state.blindPuzzles.gameDrillReplayTimerId = window.setTimeout(() => {
     state.blindPuzzles.gameDrillReplayTimerId = null;
@@ -5836,41 +5845,38 @@ function scheduleGameDrillReplayTick(delay = gameDrillReplayDelayMs()) {
   }, delay);
 }
 
-function startGameDrillReplay() {
+function startGameDrillReplay(fromPly = 0) {
   if (!isGameDrillModeActive()) {
     return;
   }
   clearGameDrillReplayTimer();
-  state.blindPuzzles.gameDrillReplayPaused = false;
-  const total = gameDrillPrefixMoves().length;
-  if (total <= 0) {
+  if (!gameDrillPrefixMoves().length) {
     state.reviewPly = null;
     return;
   }
-  state.reviewPly = 0;
+  state.reviewPly = fromPly;
+  state.blindPuzzles.gameDrillReplayState = 'playing';
   advanceGameDrillReplay();
 }
 
-function toggleGameDrillReplayPause() {
+function handleGameDrillReplayButton() {
   if (!isGameDrillModeActive()) {
     return;
   }
+  const replayState = state.blindPuzzles.gameDrillReplayState;
   const total = gameDrillPrefixMoves().length;
-  if (total <= 0) {
-    return;
-  }
-  const viewed = state.reviewPly ?? total;
-  if (!state.blindPuzzles.gameDrillReplayPaused && viewed >= total) {
-    return;
-  }
-  if (state.blindPuzzles.gameDrillReplayPaused) {
-    state.blindPuzzles.gameDrillReplayPaused = false;
-    scheduleGameDrillReplayTick();
-  } else {
+  const selected = state.reviewPly;
+  if (replayState === 'playing') {
+    if (selected === null) return;
     clearGameDrillReplayTimer();
-    state.blindPuzzles.gameDrillReplayPaused = true;
+    state.blindPuzzles.gameDrillReplayState = 'paused';
+    updateMainControlsVisibility();
+    return;
   }
-  updateMainControlsVisibility();
+  const fromPly = selected !== null && selected <= total
+    ? Math.max(0, selected - (replayState === 'review' ? 1 : 0))
+    : 0;
+  startGameDrillReplay(fromPly);
 }
 
 function startSquareColors() {
@@ -6116,9 +6122,6 @@ function reviewStepForward() {
     }
     const next = viewed + 1;
     state.reviewPly = next >= total ? null : next;
-    if (state.reviewPly === null) {
-      state.blindPuzzles.gameDrillReplayPaused = false;
-    }
     updateAll();
     return;
   }
@@ -6192,7 +6195,6 @@ function reviewJumpLast() {
       return;
     }
     state.reviewPly = null;
-    state.blindPuzzles.gameDrillReplayPaused = false;
     updateAll();
     return;
   }
@@ -6284,9 +6286,6 @@ function jumpToMovePly(absPly) {
     }
     const next = Math.max(1, Math.min(total, absPly + 1));
     state.reviewPly = next >= total ? null : next;
-    if (state.reviewPly === null) {
-      state.blindPuzzles.gameDrillReplayPaused = false;
-    }
     updateAll();
     return;
   }
@@ -7388,19 +7387,16 @@ function updateMainControlsVisibility() {
     && (forceShowLastMoveInGame || state.showLastMove)
     && hasLastMoveText;
   const showLastMoveRowInBlind = blindHasPlayedMoves && hasLastMoveText;
-  const showLastMoveRow = showLastMoveRowInGame || showLastMoveRowInBlind;
+  const showGameDrillReplay = inGameDrill && gameDrillPrefixTotal > 0;
+  const showLastMoveRow = showLastMoveRowInGame || showLastMoveRowInBlind || showGameDrillReplay;
   const canShowLastMoveRow = state.sessionMode === 'game' || blindStructuredLastMove;
   elements.lastMoveRow.hidden = !canShowLastMoveRow || hideBelowSlider || !showLastMoveRow;
-  const gameDrillPauseVisible = inGameDrill
-    && gameDrillPrefixTotal > 0
-    && (
-      state.blindPuzzles.gameDrillReplayPaused
-      || !!state.blindPuzzles.gameDrillReplayTimerId
-      || gameDrillViewed < gameDrillPrefixTotal
-    );
-  elements.gameDrillPauseBtn.hidden = !gameDrillPauseVisible;
-  elements.gameDrillPauseBtn.disabled = !gameDrillPauseVisible;
-  elements.gameDrillPauseBtn.textContent = state.blindPuzzles.gameDrillReplayPaused ? 'Resume' : 'Pause';
+  const replayPlaying = state.blindPuzzles.gameDrillReplayState === 'playing';
+  const replayAtEnd = gameDrillViewed >= gameDrillPrefixTotal;
+  const replayFromSelection = state.reviewPly !== null && gameDrillViewed <= gameDrillPrefixTotal;
+  elements.gameDrillPauseBtn.hidden = !showGameDrillReplay;
+  elements.gameDrillPauseBtn.disabled = !showGameDrillReplay || (replayPlaying && replayAtEnd);
+  elements.gameDrillPauseBtn.textContent = replayPlaying ? 'Pause' : (replayFromSelection ? 'Play' : 'Replay');
   const centerStatusNoLastMove = state.sessionMode === 'game' && !hideBelowSlider && elements.lastMoveRow.hidden;
   document.body.classList.toggle('center-status-no-lastmove', centerStatusNoLastMove);
   const newGamePending = state.sessionMode === 'game' && !state.gameStarted && !hideBelowSlider;
@@ -7408,7 +7404,7 @@ function updateMainControlsVisibility() {
   const hideStatusForLastMove = !elements.lastMoveRow.hidden
     && (
       (state.sessionMode === 'game' && state.gameStarted && hasLastMoveText)
-      || blindStructuredLastMove
+      || (blindStructuredLastMove && hasLastMoveText)
     );
   elements.statusRow.hidden = hideBelowSlider || hideStatusForLastMove;
   document.body.classList.toggle('status-replaced-by-lastmove', !hideBelowSlider && hideStatusForLastMove);
@@ -8447,9 +8443,7 @@ elements.positionRecallClearBtn.addEventListener('click', () => {
 elements.positionRecallCheckBtn.addEventListener('click', () => {
   checkPositionRecallPlacement();
 });
-elements.gameDrillPauseBtn.addEventListener('click', () => {
-  toggleGameDrillReplayPause();
-});
+elements.gameDrillPauseBtn.addEventListener('click', handleGameDrillReplayButton);
 elements.followNextBtn.addEventListener('click', () => {
   advanceFollowGameChunk();
 });
