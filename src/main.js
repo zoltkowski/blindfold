@@ -2189,19 +2189,19 @@ function boardGameForDisplayedPieces(boardGame) {
   if (state.game.isGameOver() || isReviewLocked() || state.revealPosition) {
     return boardGame;
   }
-  const interval = normalizedBoardRevealEvery();
-  if (interval <= 1 || interval >= BOARD_REVEAL_NEVER) {
-    return boardGame;
-  }
   const verbose = state.game.history({ verbose: true });
-  if (!verbose.length) {
-    return boardGame;
-  }
-  const shownPlies = Math.floor(verbose.length / interval) * interval;
+  const shownPlies = gameSnapshotPly(verbose.length);
   if (shownPlies === verbose.length) {
     return boardGame;
   }
   return setGameFromVerboseMoves(verbose, shownPlies) ?? boardGame;
+}
+
+function gameSnapshotPly(total) {
+  const interval = normalizedBoardRevealEvery();
+  return state.revealPosition || interval <= 1 || interval >= BOARD_REVEAL_NEVER
+    ? total
+    : Math.floor(total / interval) * interval;
 }
 
 function transformPiecesForDisplay(pieces) {
@@ -2281,7 +2281,7 @@ function updateBoard() {
     : (reviewLocked
       ? undefined
       : (boardGame.turn() === (state.userColor === 'white' ? 'w' : 'b') ? state.userColor : undefined));
-  const boardInputEnabled = (followMode || recall || movements)
+  const boardInputEnabled = (followMode || recall || movements || isBlindClickInputActive(boardGameForPieces !== boardGame))
     ? false
     : (state.sessionMode !== 'game' || state.gameStarted);
   const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
@@ -2289,7 +2289,7 @@ function updateBoard() {
     || ground.state.coordinatesOnSquares !== shouldShowCoordinates;
   const customHighlights = squareColorHeatmapActive
     ? squareColorHeatmapHighlights()
-    : (suppressVisualMarks ? new Map() : blindSourceHighlightMap());
+    : blindSourceHighlightMap();
 
   ground.set({
     orientation: boardOrientation,
@@ -2390,14 +2390,12 @@ function squareColorHeatmapHighlights() {
   return custom;
 }
 
-function isBlindClickInputActive() {
-  if (state.sessionMode !== 'game') {
-    return false;
+function isBlindClickInputActive(boardIsStale) {
+  if (state.sessionMode === 'puzzle') {
+    return !!state.puzzle && !state.puzzle.solved && !state.puzzleAutoPlaying;
   }
-  if (isReviewLocked()) {
-    return false;
-  }
-  if (!isUserTurn()) {
+  if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()
+    || isReviewLocked() || !isUserTurn()) {
     return false;
   }
   if (state.displayMode === 'no-pieces') {
@@ -2409,15 +2407,21 @@ function isBlindClickInputActive() {
   if (state.displayMode === 'black-only' && state.userColor === 'white') {
     return true;
   }
-  return false;
+  if (state.displayMode === 'same-pieces' && state.userColor === 'black') {
+    return true;
+  }
+  if (boardIsStale !== undefined) return boardIsStale;
+  const total = state.game.history().length;
+  return gameSnapshotPly(total) !== total;
 }
 
 function shouldShowAnyMoveDots() {
-  return !shouldSuppressVisualMarks() && state.showBlindDests && isBlindClickInputActive();
+  return state.sessionMode === 'game' && !shouldSuppressVisualMarks()
+    && state.showBlindDests && isBlindClickInputActive();
 }
 
 function blindSourceHighlightMap() {
-  if (shouldSuppressVisualMarks() || !isBlindClickInputActive() || !state.blindClickFrom) {
+  if (!state.blindClickFrom || !isBlindClickInputActive()) {
     return new Map();
   }
   return new Map([[state.blindClickFrom, 'blind-click-source']]);
@@ -2448,7 +2452,7 @@ function syncBlindClickDots() {
   const customHighlights = squareColorHeatmapActive
     ? squareColorHeatmapHighlights()
     : (routeTarget ? new Map([[routeTarget, 'last-move']])
-      : (suppressVisualMarks ? new Map() : blindSourceHighlightMap()));
+      : blindSourceHighlightMap());
   ground.set({
     highlight: {
       lastMove: !suppressVisualMarks,
@@ -2456,14 +2460,14 @@ function syncBlindClickDots() {
       custom: customHighlights
     }
   });
-  if (suppressVisualMarks || !isBlindClickInputActive()) {
+  if (!isBlindClickInputActive()) {
     state.blindClickFrom = null;
     ground.selectSquare(null);
     ground.setAutoShapes([]);
     return;
   }
-  if (!state.blindClickFrom || !state.showBlindDests) {
-    ground.selectSquare(state.blindClickFrom, true);
+  if (!state.blindClickFrom || !shouldShowAnyMoveDots()) {
+    ground.selectSquare(null);
     ground.setAutoShapes([]);
     return;
   }
@@ -2481,13 +2485,33 @@ function syncBlindClickDots() {
 
 function setBlindClickFrom(square) {
   state.blindClickFrom = square;
-  window.setTimeout(() => {
-    if (state.blindClickFrom !== square) {
-      return;
-    }
-    ground.selectSquare(square, true);
-    syncBlindClickDots();
-  }, 0);
+  syncBlindClickDots();
+}
+
+function submitPuzzleBoardMove(from, to) {
+  const move = from + to;
+  if (!['78', '21'].includes(from[1] + to[1])) {
+    applyPlayerMove(move);
+    return;
+  }
+  const puzzle = state.puzzle;
+  const plies = new Set([puzzle.solutionIndex, Math.max(puzzle.solutionIndex, puzzle.contextMoves.length)]);
+  const isPromotion = [...plies].some((ply) => {
+    const game = setGameFromPuzzleLine(puzzle.baseFen, puzzle.lineMoves, ply);
+    return game?.moves({ square: from, verbose: true }).some((candidate) => candidate.to === to && candidate.promotion);
+  });
+  if (!isPromotion) {
+    applyPlayerMove(move);
+    return;
+  }
+  const piece = window.prompt('Promote to queen (q), rook (r), bishop (b), or knight (n).', 'q');
+  if (piece === null) return;
+  const promotion = piece.trim().toLowerCase();
+  if (/^[qrbn]$/.test(promotion)) {
+    applyPlayerMove(move + promotion);
+  } else {
+    elements.statusText.textContent = 'Choose q, r, b, or n for promotion.';
+  }
 }
 
 function onBlindBoardClick(event) {
@@ -2508,6 +2532,17 @@ function onBlindBoardClick(event) {
 
   const square = ground.getKeyAtDomPos([event.clientX, event.clientY]);
   if (!square) {
+    return;
+  }
+
+  if (state.sessionMode === 'puzzle') {
+    const from = state.blindClickFrom;
+    if (!from) {
+      setBlindClickFrom(square);
+    } else {
+      clearBlindClickSelection();
+      if (from !== square) submitPuzzleBoardMove(from, square);
+    }
     return;
   }
 
@@ -3483,6 +3518,7 @@ function trySkipContextToSolutionByInput(text) {
 
 async function loadLichessPuzzle() {
   resetBlindPuzzleSession();
+  clearBlindClickSelection();
   state.puzzleAutoPlaying = false;
   state.puzzleRevealPrevView = null;
   state.puzzleLastAttempt = null;
@@ -6392,6 +6428,9 @@ function applyPlayerMove(text) {
   if (state.sessionMode === 'puzzle' && state.puzzleAutoPlaying) {
     elements.statusText.textContent = 'Solution playback in progress...';
     return false;
+  }
+  if (state.sessionMode === 'puzzle' && state.blindClickFrom) {
+    clearBlindClickSelection();
   }
   if (state.sessionMode === 'follow-game') {
     return applyFollowQuizUserMove(text);
