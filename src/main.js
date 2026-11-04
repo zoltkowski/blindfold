@@ -202,10 +202,6 @@ app.innerHTML = `
             </select>
             <button id="followRestartBtn" type="button">Restart</button>
           </div>
-          <label id="followQuizStartRow" class="follow-field" hidden>
-            <span class="engine-meta"><span>Quiz From Move</span>: <span id="followQuizStartValue">1</span></span>
-            <input id="followQuizStart" type="range" min="1" max="25" step="1" value="1" />
-          </label>
         </div>
         <div id="followGameMeta" class="follow-meta" hidden>-</div>
         <div id="followGameMoves" class="follow-moves"></div>
@@ -472,9 +468,6 @@ const elements = {
   followUploadInput: document.getElementById('followUploadInput'),
   followModeQuizBtn: document.getElementById('followModeQuizBtn'),
   followQuizAutoColor: document.getElementById('followQuizAutoColor'),
-  followQuizStartRow: document.getElementById('followQuizStartRow'),
-  followQuizStart: document.getElementById('followQuizStart'),
-  followQuizStartValue: document.getElementById('followQuizStartValue'),
   followRestartBtn: document.getElementById('followRestartBtn'),
   followQuizActions: document.getElementById('followQuizActions'),
   followQuizHintBtn: document.getElementById('followQuizHintBtn'),
@@ -837,7 +830,6 @@ const state = {
     selectedId: '',
     mode: 'browse',
     quizActive: false,
-    quizStartMove: 1,
     quizAutoColor: 'none',
     quizFeedback: '',
     quizEvalToken: 0,
@@ -3080,28 +3072,6 @@ function parseUploadedFollowGames(pgnText, sourceLabel = 'User PGN') {
   return out;
 }
 
-function followTotalMoves(current = state.followGame.current) {
-  const totalPlies = current?.moveSans?.length ?? 0;
-  return Math.ceil(totalPlies / 2);
-}
-
-function followStartPlyFromSelectedMove() {
-  const current = state.followGame.current;
-  const totalPlies = current?.moveSans?.length ?? 0;
-  const chosenMove = Math.max(1, Math.min(followTotalMoves(current), Math.floor(Number(state.followGame.quizStartMove) || 1)));
-  return Math.max(0, Math.min(totalPlies, (chosenMove - 1) * 2));
-}
-
-function syncFollowQuizSliderBounds() {
-  const totalMoves = Math.max(1, followTotalMoves());
-  elements.followQuizStart.min = '1';
-  elements.followQuizStart.max = String(totalMoves);
-  const bounded = Math.max(1, Math.min(totalMoves, Math.floor(Number(state.followGame.quizStartMove) || 1)));
-  state.followGame.quizStartMove = bounded;
-  elements.followQuizStart.value = String(bounded);
-  elements.followQuizStartValue.textContent = String(bounded);
-}
-
 function followGameDisplayTitle(game) {
   const names = game.title.replace(/\s*\([^)]*\)/g, '').split(/\s+vs\s+/i)
     .map((name) => name.split(',')[0].trim()).join(' vs ');
@@ -3259,6 +3229,7 @@ function applyFollowQuizUserMove(text) {
 
 function resetFollowForCurrentSelection({ quizStartPlyOverride = null } = {}) {
   const selected = followGameById(state.followGame.selectedId);
+  const previousGame = state.followGame.current;
   state.followGame.quizEvalToken += 1;
   stopFollowBrowsePlayback({ cancelSpeech: true });
   if (!selected) {
@@ -3278,12 +3249,10 @@ function resetFollowForCurrentSelection({ quizStartPlyOverride = null } = {}) {
   if (state.followGame.mode === 'quiz') {
     state.followGame.quizActive = true;
     const totalPlies = selected.moveSans.length;
-    let startPly = followStartPlyFromSelectedMove();
+    let startPly = previousGame?.id === selected.id ? state.followGame.quizStartPly : 0;
     if (Number.isFinite(quizStartPlyOverride)) {
       startPly = Math.max(0, Math.min(totalPlies, Math.floor(quizStartPlyOverride)));
     }
-    const selectedMove = Math.max(1, Math.min(followTotalMoves(selected), Math.floor(startPly / 2) + 1));
-    state.followGame.quizStartMove = selectedMove;
     state.followGame.quizStartPly = startPly;
     if (!setFollowGamePly(startPly)) {
       elements.statusText.textContent = 'Cannot load selected follow game.';
@@ -3362,7 +3331,6 @@ function updateFollowPanel() {
     elements.followGameTitle.textContent = '-';
     elements.followGameMeta.textContent = '-';
     elements.followGameMoves.textContent = '';
-    elements.followQuizStartRow.hidden = true;
     elements.followBrowseActions.hidden = false;
     elements.followRestartBtn.disabled = true;
     return;
@@ -3370,14 +3338,11 @@ function updateFollowPanel() {
 
   syncFollowModeButtons();
   syncFollowGameSelectOptions();
-  syncFollowQuizSliderBounds();
   elements.followQuizAutoColor.value = state.followGame.quizAutoColor;
-  elements.followQuizStartRow.hidden = !state.followGame.current;
   elements.followGameSelect.disabled = !state.followGame.games.length;
   elements.followLoadBtn.disabled = !state.followGame.games.length;
   elements.followRandomBtn.disabled = !state.followGame.games.length;
   elements.followQuizAutoColor.disabled = !state.followGame.current;
-  elements.followQuizStart.disabled = !state.followGame.current;
 
   const current = state.followGame.current;
   const hasLoadedGame = !!current;
@@ -8609,18 +8574,6 @@ elements.followQuizAutoColor.addEventListener('change', () => {
     updateAll();
   } else {
     updateFollowPanel();
-  }
-});
-elements.followQuizStart.addEventListener('input', () => {
-  const value = Number(elements.followQuizStart.value);
-  const totalMoves = Math.max(1, followTotalMoves());
-  const bounded = Number.isFinite(value) ? Math.max(1, Math.min(totalMoves, Math.floor(value))) : 1;
-  state.followGame.quizStartMove = bounded;
-  elements.followQuizStart.value = String(bounded);
-  elements.followQuizStartValue.textContent = String(bounded);
-  if (state.followGame.mode === 'browse' && state.followGame.current) {
-    stopFollowBrowsePlayback({ cancelSpeech: true });
-    if (setFollowGamePly(followStartPlyFromSelectedMove())) updateAll();
   }
 });
 elements.followQuizHintBtn.addEventListener('click', () => {
