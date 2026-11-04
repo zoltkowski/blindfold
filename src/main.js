@@ -2183,7 +2183,7 @@ function boardGameForDisplayedPieces(boardGame) {
     return setGameFromVerboseMoves(current.moveVerbose, revealedPlies) ?? boardGame;
   }
 
-  if (state.sessionMode !== 'game' || !state.gameStarted || state.displayMode !== 'normal-pieces') {
+  if (state.sessionMode !== 'game' || !state.gameStarted) {
     return boardGame;
   }
   if (state.game.isGameOver() || isReviewLocked() || state.revealPosition) {
