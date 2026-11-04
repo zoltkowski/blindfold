@@ -154,6 +154,16 @@ app.innerHTML = `
                 <option value="hardest">hardest</option>
               </select>
             </label>
+            <div id="lichessTokenSettings">
+              <label>
+                Lichess API token
+                <input id="lichessTokenInput" type="password" autocomplete="off" spellcheck="false" />
+              </label>
+              <button id="saveLichessTokenBtn" type="button">Check and save token</button>
+              <button id="removeLichessTokenBtn" type="button">Remove token</button>
+              <div id="lichessTokenStatus" class="muted" role="status"></div>
+              <a href="https://lichess.org/account/oauth/token" target="_blank" rel="noopener noreferrer">Create a Lichess token</a>
+            </div>
             <label>
               <span class="engine-meta"><span>Puzzle Backtrack (plies)</span>: <span id="puzzleBacktrackValue">2</span></span>
               <input id="puzzleBacktrack" type="range" min="1" max="32" step="1" value="2" />
@@ -382,6 +392,11 @@ app.innerHTML = `
 `;
 
 const elements = {
+  lichessTokenSettings: document.getElementById('lichessTokenSettings'),
+  lichessTokenInput: document.getElementById('lichessTokenInput'),
+  saveLichessTokenBtn: document.getElementById('saveLichessTokenBtn'),
+  removeLichessTokenBtn: document.getElementById('removeLichessTokenBtn'),
+  lichessTokenStatus: document.getElementById('lichessTokenStatus'),
   board: document.getElementById('board'),
   boardShell: document.querySelector('.board-shell'),
   rotateBoardBtn: document.getElementById('rotateBoardBtn'),
@@ -927,6 +942,64 @@ function readLocalJson(key) {
     return null;
   }
 }
+
+const LICHESS_TOKEN_KEY = 'blindfold_lichess_token_v1';
+const savedLichessToken = readLocalJson(LICHESS_TOKEN_KEY);
+let lichessToken = typeof savedLichessToken?.token === 'string' ? savedLichessToken.token : '';
+let lichessTokenValid = !!lichessToken && savedLichessToken?.valid === true;
+
+function updateLichessTokenSettings(message = '') {
+  elements.lichessTokenSettings.hidden = lichessTokenValid;
+  elements.lichessTokenInput.value = lichessToken;
+  elements.removeLichessTokenBtn.hidden = !lichessToken;
+  elements.lichessTokenStatus.textContent = message;
+}
+
+function storeLichessToken() {
+  writeLocalJson(LICHESS_TOKEN_KEY, { token: lichessToken, valid: lichessTokenValid });
+}
+
+elements.saveLichessTokenBtn.addEventListener('click', async () => {
+  const token = elements.lichessTokenInput.value.trim();
+  if (!token) {
+    elements.lichessTokenStatus.textContent = 'Enter a token first.';
+    return;
+  }
+  elements.saveLichessTokenBtn.disabled = true;
+  elements.lichessTokenStatus.textContent = 'Checking token...';
+  try {
+    const response = await fetch('https://lichess.org/api/account', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (response.status === 401 || response.status === 403) {
+      elements.lichessTokenStatus.textContent = 'Lichess rejected this token. Check it and try again.';
+      return;
+    }
+    if (!response.ok) {
+      elements.lichessTokenStatus.textContent = response.status === 429
+        ? 'Lichess rate limit reached. Wait one minute and try again.'
+        : 'Could not check the token. Try again later.';
+      return;
+    }
+    lichessToken = token;
+    lichessTokenValid = true;
+    storeLichessToken();
+    updateLichessTokenSettings();
+  } catch (_error) {
+    elements.lichessTokenStatus.textContent = 'Could not contact Lichess. Try again later.';
+  } finally {
+    elements.saveLichessTokenBtn.disabled = false;
+  }
+});
+
+elements.removeLichessTokenBtn.addEventListener('click', () => {
+  lichessToken = '';
+  lichessTokenValid = false;
+  storeLichessToken();
+  updateLichessTokenSettings('Token removed.');
+});
+
+updateLichessTokenSettings();
 
 function writeLocalJson(key, value) {
   try {
@@ -3522,7 +3595,16 @@ async function loadLichessPuzzle() {
   try {
     const query = new URLSearchParams();
     query.set('difficulty', state.puzzleDifficulty);
-    const response = await fetch(`https://lichess.org/api/puzzle/next?${query.toString()}`);
+    const token = lichessTokenValid ? lichessToken : '';
+    const response = await fetch(`https://lichess.org/api/puzzle/next?${query.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (token && (response.status === 401 || response.status === 403) && token === lichessToken) {
+      lichessTokenValid = false;
+      storeLichessToken();
+      updateLichessTokenSettings('Lichess rejected the saved token. Check or remove it.');
+      throw new Error('Lichess token rejected');
+    }
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -3612,6 +3694,10 @@ async function loadLichessPuzzle() {
     }
     updateAll();
     const msg = String(error?.message ?? '');
+    if (msg === 'Lichess token rejected') {
+      elements.statusText.textContent = 'Lichess token rejected. Check it in Configuration.';
+      return;
+    }
     if (msg === 'HTTP 429') {
       elements.statusText.textContent = 'Lichess busy, wait 1 minute';
       return;
