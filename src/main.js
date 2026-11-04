@@ -285,7 +285,7 @@ app.innerHTML = `
         </div>
       </div>
 
-      <div id="moveInputs" class="move-inputs">
+      <div id="moveInputs" class="move-inputs" hidden>
         <form id="moveForm">
           <div class="move-form-row">
             <input id="moveInput" type="text" autocomplete="off" placeholder="Wpisz ruch (np. Sf3 albo e2e4)" />
@@ -331,7 +331,7 @@ app.innerHTML = `
         <div id="voiceStatus" class="muted"></div>
       </div>
 
-      <div id="statusRow" class="status-row">
+      <div id="statusRow" class="status-row" hidden>
         <span id="statusText">White to move</span>
       </div>
       <div id="squareColorControls" class="square-color-controls" hidden>
@@ -339,11 +339,11 @@ app.innerHTML = `
         <button id="squareColorBlackBtn" type="button">Black</button>
         <button id="blindStopBtn" type="button" hidden>Stop</button>
       </div>
-      <div id="lastMoveRow" class="last-move-row">
+      <div id="lastMoveRow" class="last-move-row" hidden>
         <span id="lastMoveText" class="last-move-text"></span>
       </div>
 
-      <div id="movesPanel" class="moves-panel">
+      <div id="movesPanel" class="moves-panel" hidden>
         <button id="toggleMovesBtn" type="button" aria-label="Show moves" title="Show moves">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
             <path d="M2.5 4 6 6 2.5 8ZM2.5 10 6 12 2.5 14ZM2.5 16 6 18 2.5 20Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
@@ -8664,6 +8664,7 @@ elements.voiceStickyBtn.addEventListener('click', () => {
 });
 
 async function bootstrapApp() {
+  syncViewModeClasses();
   await hydratePersistentStorage();
   state.positionExercises = buildPositionExercises();
   state.positionSolved = readSolvedPositions();
