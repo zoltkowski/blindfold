@@ -7269,7 +7269,9 @@ function updateMainControlsVisibility() {
   const inBlind = state.sessionMode === 'blind-puzzles';
   const inFollow = state.sessionMode === 'follow-game';
   const blindStructuredLastMove = isBlindStructuredLastMoveMode();
-  const hideMain = inPuzzle || (isPositionRecallMode() && state.blindPuzzles.running);
+  const hideDisplayMode = inPuzzle
+    || (inBlind && state.blindPuzzles.mode === 'square-colors')
+    || (isPositionRecallMode() && state.blindPuzzles.running);
   const beforeGameStart = state.sessionMode === 'game' && !state.gameStarted;
   const inBlindGame = inBlind && isBlindPlayableGameMode();
   const inGameDrill = inBlind && state.blindPuzzles.mode === 'game-drill';
@@ -7286,8 +7288,8 @@ function updateMainControlsVisibility() {
       || inFollowQuiz)
     && (state.sessionMode !== 'game' || state.gameStarted)
     && (state.sessionMode === 'puzzle' || isUserTurn());
-  elements.displayModeRow.hidden = hideMain;
-  elements.displayModeRow.style.display = hideMain ? 'none' : '';
+  elements.displayModeRow.hidden = hideDisplayMode;
+  elements.displayModeRow.style.display = hideDisplayMode ? 'none' : '';
   const showBoardRevealRow = !inPuzzle && !inBlind;
   elements.boardRevealRow.hidden = !showBoardRevealRow;
   elements.boardRevealRow.style.display = showBoardRevealRow ? '' : 'none';
