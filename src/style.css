@@ -381,14 +381,16 @@ button:hover {
   white-space: pre-line;
 }
 
-.blind-panel.square-color-layout .blind-prompt {
+.blind-panel.square-color-layout .blind-prompt,
+.blind-panel.squares-layout .blind-prompt {
   font-size: 3.4rem;
   line-height: 1;
   justify-self: center;
   text-align: center;
 }
 
-.blind-panel.square-color-layout .blind-main {
+.blind-panel.square-color-layout .blind-main,
+.blind-panel.squares-layout .blind-main {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
