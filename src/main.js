@@ -218,7 +218,7 @@ app.innerHTML = `
               Voice on for puzzles with timer
             </label>
             <label>
-              <span class="engine-meta"><span>Square Colors Questions</span>: <span id="blindQuestionCountValue">25</span></span>
+              <span class="engine-meta"><span>Square Puzzles Questions</span>: <span id="blindQuestionCountValue">25</span></span>
               <input id="blindQuestionCount" type="range" min="1" max="30" step="1" value="25" />
             </label>
             <div class="toggle-option-row">
@@ -357,6 +357,7 @@ app.innerHTML = `
         <button id="squareColorWhiteBtn" type="button">White</button>
         <button id="squareColorBlackBtn" type="button">Black</button>
         <button id="blindStopBtn" type="button" hidden>Stop</button>
+        <button id="blindAgainBtn" type="button" hidden>Again</button>
       </div>
       <div id="lastMoveRow" class="last-move-row" hidden>
         <span id="lastMoveText" class="last-move-text"></span>
@@ -522,6 +523,7 @@ const elements = {
   squareColorWhiteBtn: document.getElementById('squareColorWhiteBtn'),
   squareColorBlackBtn: document.getElementById('squareColorBlackBtn'),
   blindStopBtn: document.getElementById('blindStopBtn'),
+  blindAgainBtn: document.getElementById('blindAgainBtn'),
   lastMoveRow: document.getElementById('lastMoveRow'),
   lastMoveText: document.getElementById('lastMoveText'),
   toggleMovesBtn: document.getElementById('toggleMovesBtn'),
@@ -877,6 +879,7 @@ const state = {
     timerId: null,
     currentSquare: '',
     currentAnswer: '',
+    squaresWrong: false,
     questionStartedAt: 0,
     responseTimesMs: [],
     expectedSquares: new Set(),
@@ -2417,7 +2420,7 @@ function updateBoard() {
   const boardInputEnabled = ((followMode && !followQuizInput) || recall || movements || squaresExercise || boardIsStale || isBlindClickInputActive(boardIsStale))
     ? false
     : (state.sessionMode !== 'game' || state.gameStarted);
-  const shouldShowCoordinates = state.showCoordinates || squareColorHeatmapActive;
+  const shouldShowCoordinates = squaresExercise ? state.revealPosition : (state.showCoordinates || squareColorHeatmapActive);
   const needsCoordsRebuild = ground.state.coordinates !== shouldShowCoordinates
     || ground.state.coordinatesOnSquares !== shouldShowCoordinates;
   const customHighlights = squareColorHeatmapActive
@@ -2481,9 +2484,14 @@ function shouldSuppressVisualMarks() {
 }
 
 function syncRevealButtonUi() {
-  elements.revealBtn.hidden = (isPositionRecallMode() && state.blindPuzzles.running)
-    || (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'squares');
+  elements.revealBtn.hidden = isPositionRecallMode() && state.blindPuzzles.running;
   elements.revealBtn.classList.toggle('is-on', state.revealPosition);
+  if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'squares') {
+    elements.revealBtn.title = state.revealPosition ? 'Hide coordinates' : 'Show coordinates';
+    elements.revealBtn.setAttribute('aria-label', elements.revealBtn.title);
+    return;
+  }
+  elements.revealBtn.setAttribute('aria-label', 'Reveal position');
   if (state.sessionMode === 'puzzle' && state.puzzle) {
     elements.revealBtn.title = state.revealPosition ? 'Hide puzzle start position' : 'Show puzzle start position';
     return;
@@ -2603,9 +2611,12 @@ function syncBlindClickDots() {
   const routeTarget = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'movements'
     && state.revealPosition ? state.blindPuzzles.routeTask?.to : null;
+  const squaresTarget = state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'squares'
+    && state.blindPuzzles.squaresWrong ? state.blindPuzzles.currentSquare : null;
   const customHighlights = squareColorHeatmapActive
     ? squareColorHeatmapHighlights()
-    : (routeTarget ? new Map([[routeTarget, 'last-move']])
+    : (squaresTarget ? new Map([[squaresTarget, 'squares-answer']])
+      : routeTarget ? new Map([[routeTarget, 'last-move']])
       : blindSourceHighlightMap());
   ground.set({
     highlight: {
@@ -3845,6 +3856,7 @@ function resetBlindPuzzleSession() {
   state.blindPuzzles.elapsedMs = 0;
   state.blindPuzzles.currentSquare = '';
   state.blindPuzzles.currentAnswer = '';
+  state.blindPuzzles.squaresWrong = false;
   state.blindPuzzles.questionStartedAt = 0;
   state.blindPuzzles.responseTimesMs = [];
   state.blindPuzzles.expectedSquares = new Set();
@@ -4020,7 +4032,7 @@ function updateBlindPanel() {
   }
   if (bp.mode === 'squares') {
     elements.blindPrompt.textContent = bp.currentSquare || '-';
-    elements.blindProgress.textContent = String(bp.correct);
+    elements.blindProgress.textContent = `${bp.correct}/${bp.total}`;
     elements.blindCorrectRow.hidden = true;
     elements.blindTimer.textContent = formatBlindTime(bp.elapsedMs);
     elements.blindInputFeedback.hidden = true;
@@ -4972,6 +4984,7 @@ function finishSquareColors(success) {
   }
   speakBlindGameOverMessage(success);
   setVoiceMode(false);
+  updateSquareColorControlsVisibility();
 }
 
 function finishBlindPuzzleGeneric(success, wrongReason = '') {
@@ -5895,6 +5908,7 @@ function startSquaresExercise() {
   state.reviewPly = null;
   state.blindPuzzles.mode = 'squares';
   state.blindPuzzles.running = true;
+  state.blindPuzzles.total = state.blindQuestionCount;
   startBlindPuzzleTimer();
   askNextSquaresExercise();
 }
@@ -5902,11 +5916,26 @@ function startSquaresExercise() {
 function answerSquaresExercise(square) {
   if (!state.blindPuzzles.running) return;
   if (square !== state.blindPuzzles.currentSquare) {
-    elements.statusText.textContent = 'Wrong square. Try again.';
+    state.blindPuzzles.running = false;
+    state.blindPuzzles.squaresWrong = true;
+    state.blindPuzzles.elapsedMs = Date.now() - state.blindPuzzles.startAt;
+    stopBlindPuzzleTimer();
+    if (state.speaking) cancelTtsPlayback();
+    updateAll();
+    elements.statusText.textContent = `Wrong square. Squares found: ${state.blindPuzzles.correct}.`;
     return;
   }
   state.blindPuzzles.correct += 1;
   state.blindPuzzles.asked += 1;
+  if (state.blindPuzzles.correct >= state.blindPuzzles.total) {
+    state.blindPuzzles.running = false;
+    state.blindPuzzles.elapsedMs = Date.now() - state.blindPuzzles.startAt;
+    stopBlindPuzzleTimer();
+    if (state.speaking) cancelTtsPlayback();
+    updateAll();
+    elements.statusText.textContent = `Completed: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
+    return;
+  }
   askNextSquaresExercise();
 }
 
@@ -7659,11 +7688,14 @@ function updateSquareColorControlsVisibility() {
     && state.blindPuzzles.mode === 'square-colors';
   const stopOnly = state.sessionMode === 'blind-puzzles'
     && ['movements', 'squares'].includes(state.blindPuzzles.mode);
+  const again = state.sessionMode === 'blind-puzzles'
+    && ['squares', 'square-colors'].includes(state.blindPuzzles.mode) && !state.blindPuzzles.running;
   const visible = (squareColors || stopOnly) && !elements.statusRow.hidden;
   elements.squareColorControls.hidden = !visible;
-  elements.squareColorWhiteBtn.hidden = !squareColors;
-  elements.squareColorBlackBtn.hidden = !squareColors;
-  elements.blindStopBtn.hidden = !stopOnly;
+  elements.squareColorWhiteBtn.hidden = !squareColors || again;
+  elements.squareColorBlackBtn.hidden = !squareColors || again;
+  elements.blindStopBtn.hidden = !stopOnly || again;
+  elements.blindAgainBtn.hidden = !again;
   const enabled = visible && state.blindPuzzles.running;
   elements.squareColorWhiteBtn.disabled = !enabled || !squareColors;
   elements.squareColorBlackBtn.disabled = !enabled || !squareColors;
@@ -8712,6 +8744,10 @@ elements.blindStopBtn.addEventListener('click', () => {
     return;
   }
   submitBlindStop();
+});
+elements.blindAgainBtn.addEventListener('click', () => {
+  if (state.blindPuzzles.mode === 'squares') startSquaresExercise();
+  else if (state.blindPuzzles.mode === 'square-colors') startSquareColors();
 });
 elements.positionRecallTrashBtn.addEventListener('click', () => {
   if (!canEditPositionRecall()) {
