@@ -6760,16 +6760,15 @@ function applyPlayerMove(text) {
   state.game.move({ from: match.from, to: match.to, promotion: match.promotion });
   if (state.sessionMode === 'puzzle') {
     markPuzzleSolvedIfFinished();
+    const indexAfterUserMove = state.puzzle.solutionIndex;
     autoPlayPuzzleOpponentMovesIfEnabled();
-    if (isMoveSpeechEnabled()) {
+    const showOpponentReply = !state.puzzle.solved && state.puzzle.solutionIndex > indexAfterUserMove;
+    if (isMoveSpeechEnabled() && !showOpponentReply) {
       restorePuzzleView();
     } else {
       syncPuzzleToProgress();
     }
     updateAll();
-    if (!state.puzzle?.solved) {
-      elements.statusText.textContent = 'Correct.';
-    }
   } else {
     afterAnyMove();
     window.setTimeout(playEngineMoveIfNeeded, 250);
@@ -7278,8 +7277,13 @@ function hideSpokenPlaybackMove() {
 }
 
 function updateLastMove() {
+  const puzzle = state.sessionMode === 'puzzle' ? state.puzzle : null;
+  const showPuzzleReply = puzzle && !puzzle.solved
+    && state.puzzleViewIndex === puzzleProgressAbsPly()
+    && puzzle.solutionIndex > puzzle.contextMoves.length
+    && puzzle.lineMoves[puzzle.solutionIndex - 1]?.color !== puzzle.playerColor;
   if (isMoveSpeechEnabled() && (
-    (state.sessionMode === 'puzzle' && !reviewPlaybackActive) || gameDrillIntroFinished() || hideSpokenPlaybackMove()
+    (puzzle && !reviewPlaybackActive && !showPuzzleReply) || gameDrillIntroFinished() || hideSpokenPlaybackMove()
   )) {
     elements.lastMoveText.textContent = '';
     return;
