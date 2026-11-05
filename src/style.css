@@ -540,9 +540,20 @@ button:hover {
 }
 
 .position-recall-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.45rem;
+}
+
+#positionRecallCheckBtn,
+#positionRecallCompareBtn {
+  grid-column: 1 / -1;
+  min-height: 3rem;
+  font-weight: 700;
+}
+
+.position-recall-legend {
+  font-size: 0.85rem;
 }
 
 .position-recall-actions > button.is-on {
@@ -964,6 +975,14 @@ body.follow-browse-mode #lastMoveRow {
 
 .cg-wrap square.squares-answer {
   box-shadow: inset 0 0 0 999px rgba(52, 190, 83, 0.65);
+}
+
+.cg-wrap square.recall-wrong {
+  box-shadow: inset 0 0 0 999px rgba(220, 52, 52, 0.6);
+}
+
+.cg-wrap square.recall-missing {
+  box-shadow: inset 0 0 0 999px rgba(245, 196, 40, 0.65);
 }
 
 #blindAgainBtn {
