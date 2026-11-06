@@ -574,11 +574,12 @@ const POSITION_RECALL_SEEN_KEY = 'blind_position_recall_seen_v1';
 const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
 const SQUARE_COLOR_STATS_KEY = 'blind_square_color_stats_v1';
+const SQUARES_STATS_KEY = 'blind_squares_stats_v1';
 const SQUARE_COLOR_RECORDS_KEY = 'blind_square_color_records_v1';
 const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
-const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY];
+const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY, SQUARES_STATS_KEY];
 const BOARD_REVEAL_MIN = 1;
 const BOARD_REVEAL_NEVER = 33;
 const SQUARE_COLOR_WRONG_PENALTY_MS = 10000;
@@ -937,6 +938,7 @@ const state = {
   gameExercises: [],
   gameSolved: new Set(),
   squareColorStats: {},
+  squaresStats: {},
   squareColorRecords: {
     bestTotalMsByCount: {},
     bestAvgMsGte20: null
@@ -2390,7 +2392,7 @@ function updateBoard() {
   elements.board.dataset.mode = recall ? 'normal-pieces' : state.displayMode;
   const boardRevealActive = isBoardRevealActive();
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
-    && state.blindPuzzles.mode === 'square-colors'
+    && ['square-colors', 'squares'].includes(state.blindPuzzles.mode)
     && boardRevealActive;
   const movements = state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'movements';
   const boardHidden = squaresExercise ? false : recall
@@ -2522,7 +2524,7 @@ function syncRevealButtonUi() {
   elements.revealBtn.hidden = isPositionRecallMode() && state.blindPuzzles.running;
   elements.revealBtn.classList.toggle('is-on', state.revealPosition);
   if (state.sessionMode === 'blind-puzzles' && state.blindPuzzles.mode === 'squares') {
-    elements.revealBtn.title = state.revealPosition ? 'Hide coordinates' : 'Show coordinates';
+    elements.revealBtn.title = state.revealPosition ? 'Hide square heat map and coordinates' : 'Show square heat map and coordinates';
     elements.revealBtn.setAttribute('aria-label', elements.revealBtn.title);
     return;
   }
@@ -2543,7 +2545,8 @@ function syncRevealButtonUi() {
 }
 
 function squareColorHeatClass(square) {
-  const stats = getSquareColorStatsEntry(square);
+  const source = state.blindPuzzles.mode === 'squares' ? state.squaresStats : state.squareColorStats;
+  const stats = getSquareColorStatsEntry(square, source);
   if (!Array.isArray(stats.lastTimesMs) || !stats.lastTimesMs.length) {
     return 'square-color-heat-0';
   }
@@ -2643,7 +2646,7 @@ function clearBlindClickSelection() {
 function syncBlindClickDots() {
   const suppressVisualMarks = shouldSuppressVisualMarks();
   const squareColorHeatmapActive = state.sessionMode === 'blind-puzzles'
-    && state.blindPuzzles.mode === 'square-colors'
+    && ['square-colors', 'squares'].includes(state.blindPuzzles.mode)
     && state.revealPosition;
   const routeTarget = state.sessionMode === 'blind-puzzles'
     && state.blindPuzzles.mode === 'movements'
@@ -4136,12 +4139,12 @@ function randomSquare() {
   return ALL_BOARD_SQUARES[Math.floor(Math.random() * ALL_BOARD_SQUARES.length)];
 }
 
-function getSquareColorStatsEntry(square) {
+function getSquareColorStatsEntry(square, source = state.squareColorStats) {
   const key = String(square ?? '').toLowerCase();
   if (!isBoardSquare(key)) {
     return { asked: 0, correct: 0, lastTimesMs: [] };
   }
-  const entry = state.squareColorStats[key];
+  const entry = source[key];
   if (!entry || !Number.isFinite(entry.asked) || !Number.isFinite(entry.correct)) {
     return { asked: 0, correct: 0, lastTimesMs: [] };
   }
@@ -4267,12 +4270,12 @@ function pickNextSquareColorSquare() {
   return bestSquares[Math.floor(Math.random() * bestSquares.length)];
 }
 
-function recordSquareColorStat(square, correct, responseMs = 0) {
+function recordSquareColorStat(square, correct, responseMs = 0, source = state.squareColorStats, storageKey = SQUARE_COLOR_STATS_KEY) {
   const key = String(square ?? '').toLowerCase();
   if (!isBoardSquare(key)) {
     return;
   }
-  const entry = getSquareColorStatsEntry(key);
+  const entry = getSquareColorStatsEntry(key, source);
   entry.asked += 1;
   if (correct) {
     entry.correct += 1;
@@ -4283,8 +4286,9 @@ function recordSquareColorStat(square, correct, responseMs = 0) {
   if (entry.lastTimesMs.length > SQUARE_COLOR_HISTORY_SIZE) {
     entry.lastTimesMs = entry.lastTimesMs.slice(-SQUARE_COLOR_HISTORY_SIZE);
   }
-  state.squareColorStats[key] = entry;
-  writeSquareColorStats();
+  source[key] = entry;
+  if (storageKey === SQUARE_COLOR_STATS_KEY) writeSquareColorStats();
+  else void writePersistentValue(storageKey, sanitizeSquareColorStats(source));
 }
 
 const positionRecallSeen = readLocalJson(POSITION_RECALL_SEEN_KEY) ?? {};
@@ -6040,6 +6044,11 @@ function startSquaresExercise() {
 
 function answerSquaresExercise(square) {
   if (!state.blindPuzzles.running) return;
+  const startedAt = state.blindPuzzles.questionStartedAt;
+  const responseMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+  recordSquareColorStat(state.blindPuzzles.currentSquare, square === state.blindPuzzles.currentSquare,
+    responseMs, state.squaresStats, SQUARES_STATS_KEY);
+  state.blindPuzzles.questionStartedAt = 0;
   if (square !== state.blindPuzzles.currentSquare) {
     state.blindPuzzles.running = false;
     state.blindPuzzles.squaresWrong = true;
@@ -9218,6 +9227,7 @@ async function bootstrapApp() {
   state.followGame.selectedId = state.followGame.games.length ? String(state.followGame.games[0].id) : '';
   state.gameSolved = readSolvedGames();
   state.squareColorStats = readSquareColorStats();
+  state.squaresStats = sanitizeSquareColorStats(readPersistentValue(SQUARES_STATS_KEY));
   state.squareColorRecords = readSquareColorRecords();
   loadSettingsIntoState();
   syncEngineControlUi();
