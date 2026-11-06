@@ -198,6 +198,7 @@ app.innerHTML = `
             <input id="followUploadInput" type="file" accept=".pgn,text/plain" hidden />
           </div>
           <div id="followRecordingActions" class="follow-actions" hidden>
+            <button id="followUndoMoveBtn" type="button" title="Remove the last move">Undo Move</button>
             <button id="followSavePgnBtn" type="button">Save PGN</button>
           </div>
           <div id="followGameTitle" class="follow-title">-</div>
@@ -482,6 +483,7 @@ const elements = {
   followUploadInput: document.getElementById('followUploadInput'),
   followNewGameBtn: document.getElementById('followNewGameBtn'),
   followRecordingActions: document.getElementById('followRecordingActions'),
+  followUndoMoveBtn: document.getElementById('followUndoMoveBtn'),
   followSavePgnBtn: document.getElementById('followSavePgnBtn'),
   followModeQuizBtn: document.getElementById('followModeQuizBtn'),
   followModeActions: document.getElementById('followModeActions'),
@@ -3402,6 +3404,7 @@ function updateFollowPanel() {
   if (recording) {
     elements.followGamePickerRow.hidden = true;
     elements.followGamePickerActions.hidden = true;
+    elements.followUndoMoveBtn.disabled = state.game.history().length === 0;
     elements.followGameTitle.textContent = 'New game';
     elements.followGameMeta.textContent = '';
     return;
@@ -5790,6 +5793,20 @@ function saveFollowRecording() {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function undoFollowRecordingMove() {
+  if (state.sessionMode !== 'follow-record') return false;
+  stopReviewPlayback();
+  const move = state.game.undo();
+  if (!move) {
+    elements.statusText.textContent = 'No moves to undo.';
+    return false;
+  }
+  state.reviewPly = null;
+  clearBlindClickSelection();
+  updateAll();
+  return true;
+}
+
 function maybeMarkPositionSolved() {
   if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'position') {
     return;
@@ -8000,6 +8017,13 @@ function ensureVoiceRecognition() {
       return;
     }
     const transcript = event.results[event.results.length - 1][0].transcript.trim();
+    const command = normalizeVoiceText(transcript).replace(/[.!?,]+$/g, '').trim();
+    if (state.sessionMode === 'follow-record' && (command === 'cofnij' || command === 'back')) {
+      const undone = undoFollowRecordingMove();
+      if (state.voiceOneShot && undone) setVoiceMode(false);
+      else elements.voiceStatus.textContent = `Heard: ${transcript}`;
+      return;
+    }
     if (handleBlindPuzzleVoice(transcript)) {
       if (!state.voiceMode) return;
       elements.voiceStatus.textContent = `Heard: ${transcript}`;
@@ -8747,6 +8771,7 @@ elements.followUploadBtn.addEventListener('click', () => {
   elements.followUploadInput.click();
 });
 elements.followNewGameBtn.addEventListener('click', startFollowRecording);
+elements.followUndoMoveBtn.addEventListener('click', undoFollowRecordingMove);
 elements.followSavePgnBtn.addEventListener('click', saveFollowRecording);
 elements.followUploadInput.addEventListener('change', async () => {
   const input = elements.followUploadInput;
