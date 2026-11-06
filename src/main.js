@@ -2939,7 +2939,7 @@ function normalizePolishFigureWords(input) {
 }
 
 function polishSpokenOrigin(origin) {
-  const files = { a: 'a', b: 'be', c: 'ce', d: 'de', e: 'e', f: 'ef', g: 'gie', h: 'ha' };
+  const files = { a: 'a', b: 'b', c: 'ce', d: 'de', e: 'e', f: 'ef', g: 'gie', h: 'ha' };
   return String(origin).replace(/^([a-h])([1-8])?$/, (_match, file, rank) =>
     `${files[file]}${rank ? ` ${rank}` : ''}`);
 }
