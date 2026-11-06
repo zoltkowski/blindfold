@@ -6686,7 +6686,7 @@ function normalizeSpokenMoveText(rawText, moveLanguage) {
     .trim();
 
   if (moveLanguage === 'pl') {
-    move = spoken
+    move = spoken.replace(/\bbije\b/g, 'x')
       .replace(/^skoczek\s+/, 'S')
       .replace(/^goniec\s+/, 'G')
       .replace(/^wieza\s+/, 'W')
@@ -6700,6 +6700,7 @@ function normalizeSpokenMoveText(rawText, moveLanguage) {
       .replace(/=\s*wieza\b/g, '=W')
       .replace(/=\s*hetman\b/g, '=H')
       .replace(/=\s*krolowa\b/g, '=H');
+    move = move.replace(/\s*x\s*/g, 'x');
     return move;
   }
 
@@ -6798,6 +6799,9 @@ function findMatchingMove(text) {
 
     const parsedLoose = normalizeSanLooseMatch(parsed.value);
     const looseMatches = legal.filter((mv) => {
+      if (parsed.value.includes('x') && !mv.flags.includes('c') && !mv.flags.includes('e')) return false;
+      const pawnFile = parsed.value.match(/^([a-h])x/)?.[1];
+      if (pawnFile && (mv.piece !== 'p' || mv.from[0] !== pawnFile)) return false;
       const engSan = mv.san;
       const polSan = englishToPolishSan(mv.san);
       return [engSan, polSan].some((san) => normalizeSanLooseMatch(san) === parsedLoose);
@@ -6816,11 +6820,15 @@ function findMatchingMove(text) {
     const first = stripped[0];
     const wantedPiece = ({ K: 'k', Q: 'q', R: 'r', B: 'b', N: 'n' }[first] ?? 'p');
     const promotion = (stripped.match(/=([QRBN])$/) ?? [])[1]?.toLowerCase();
+    const captureRequired = stripped.includes('x');
+    const pawnCaptureFile = wantedPiece === 'p' ? stripped.match(/^([a-h])x/)?.[1] : null;
 
     if (target) {
       const candidates = legal.filter((mv) =>
         mv.to === target &&
         mv.piece === wantedPiece &&
+        (!captureRequired || mv.flags.includes('c') || mv.flags.includes('e')) &&
+        (!pawnCaptureFile || mv.from[0] === pawnCaptureFile) &&
         (!promotion || mv.promotion === promotion)
       );
       if (!promotion) {
