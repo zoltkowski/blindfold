@@ -149,7 +149,11 @@ app.innerHTML = `
               <span class="engine-meta"><span>TTS Move Pause</span>: <span id="ttsMovePauseValue">250 ms</span></span>
               <input id="ttsMovePause" type="range" min="0" max="5000" step="250" value="250" />
             </label>
-            <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
+            <form id="ttsMoveForm" class="tts-sample-row">
+              <input id="ttsMoveInput" type="text" autocomplete="off" spellcheck="false" aria-label="Move to speak" placeholder="e.g. Sbd7" />
+              <button type="submit">Say</button>
+              <button id="ttsSampleBtn" type="button">Play TTS Sample</button>
+            </form>
             <button id="ttsTestVoicesBtn" type="button">Retest Voices</button>
             <div id="ttsTestStatus" class="muted" role="status"></div>
             <label>
@@ -449,6 +453,8 @@ const elements = {
   ttsMovePause: document.getElementById('ttsMovePause'),
   ttsMovePauseValue: document.getElementById('ttsMovePauseValue'),
   ttsSampleBtn: document.getElementById('ttsSampleBtn'),
+  ttsMoveForm: document.getElementById('ttsMoveForm'),
+  ttsMoveInput: document.getElementById('ttsMoveInput'),
   ttsTestVoicesBtn: document.getElementById('ttsTestVoicesBtn'),
   ttsTestStatus: document.getElementById('ttsTestStatus'),
   puzzlePanel: document.getElementById('puzzlePanel'),
@@ -2932,6 +2938,12 @@ function normalizePolishFigureWords(input) {
   return out;
 }
 
+function polishSpokenOrigin(origin) {
+  const files = { a: 'a', b: 'be', c: 'ce', d: 'de', e: 'e', f: 'ef', g: 'gie', h: 'ha' };
+  return String(origin).replace(/^([a-h])([1-8])?$/, (_match, file, rank) =>
+    `${files[file]}${rank ? ` ${rank}` : ''}`);
+}
+
 function sanToPolishSpeech(san) {
   if (san === 'O-O') return 'roszada';
   if (san === 'O-O-O') return 'długa roszada';
@@ -2952,12 +2964,12 @@ function sanToPolishSpeech(san) {
 
   let spoken;
   if (capture && pawnCaptureFile) {
-    spoken = `${pawnCaptureFile} bije ${target}`;
+    spoken = `${polishSpokenOrigin(pawnCaptureFile)} bije ${target}`;
   } else if (!pieceName) {
     spoken = capture ? `bije ${target}` : `${target}`;
   } else {
     const originHint = targetMatch ? base.slice(1, targetMatch.index).replace('x', '') : '';
-    const piece = originHint ? `${pieceName} ${originHint},` : pieceName;
+    const piece = originHint ? `${pieceName} ${polishSpokenOrigin(originHint)},` : pieceName;
     spoken = capture ? `${piece} bije ${target}` : `${piece} ${target}`;
   }
   if (promotion) {
@@ -7878,6 +7890,7 @@ function updateMoveInputPlaceholder() {
   elements.moveInput.placeholder = state.moveLanguage === 'pl'
     ? 'Wpisz ruch (np. Sf3 albo e2e4)'
     : 'Enter move (e.g. Nf3 or e2e4)';
+  elements.ttsMoveInput.placeholder = state.moveLanguage === 'pl' ? 'e.g. Sbd7' : 'e.g. Nbd7';
 }
 
 function openVoiceTestWindow() {
@@ -7923,6 +7936,25 @@ function playTtsSample() {
   }
   const lang = state.moveLanguage === 'pl' ? 'pl-PL' : 'en-US';
   speakTtsSequence(spokenMoves, lang);
+}
+
+function sayTtsMove() {
+  if (typeof speechSynthesis === 'undefined') {
+    elements.ttsTestStatus.textContent = 'TTS is not supported in this browser.';
+    return;
+  }
+  const parsed = normalizeMoveInput(elements.ttsMoveInput.value.trim());
+  const san = parsed.value;
+  const validSan = /^(?:O-O(?:-O)?|[KQRBN](?:[a-h]?[1-8]?)?x?[a-h][1-8]|[a-h](?:x[a-h])?[1-8](?:=[QRBN])?)[+#]?$/.test(san);
+  if (parsed.type !== 'san' || !validSan) {
+    elements.ttsTestStatus.textContent = `Enter a move in chess notation, e.g. ${state.moveLanguage === 'pl' ? 'Sbd7' : 'Nbd7'}.`;
+    return;
+  }
+  if (state.speaking) cancelTtsPlayback();
+  elements.ttsTestStatus.textContent = '';
+  const polish = state.moveLanguage === 'pl';
+  const spoken = polish ? sanToPolishSpeech(san) : sanToEnglishSpeech(san);
+  speakTtsSequence([spoken], polish ? 'pl-PL' : 'en-US');
 }
 
 function pieceTokenForInput(role) {
@@ -8536,6 +8568,10 @@ document.addEventListener('click', () => {
 });
 elements.ttsSampleBtn.addEventListener('click', () => {
   playTtsSample();
+});
+elements.ttsMoveForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  sayTtsMove();
 });
 
 elements.speakCheck.addEventListener('change', () => {

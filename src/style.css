@@ -212,6 +212,21 @@ label {
   font-size: 0.95rem;
 }
 
+.tts-sample-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tts-sample-row > input {
+  flex: 1 1 4rem;
+  min-width: 0;
+}
+
+.tts-sample-row > button {
+  white-space: nowrap;
+}
+
 .toggle-option-row {
   gap: 0.45rem;
 }
