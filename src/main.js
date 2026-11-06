@@ -8042,6 +8042,7 @@ function ensureVoiceRecognition() {
       && (!!findMatchingMove(moveInput) || !!findLooseExpectedPuzzleMove(moveInput));
     const ok = applyPlayerMove(moveInput);
     const recognizedButWrong = !ok && recognizedMoveAttempt;
+    playMoveFeedback(ok);
     if (state.voiceOneShot && (ok || recognizedButWrong)) {
       setVoiceMode(false);
     }
@@ -8171,6 +8172,47 @@ function stopVoiceListening({ hardReset = false } = {}) {
   state.voiceListening = false;
 }
 
+let moveFeedbackAudioContext = null;
+
+function prepareMoveFeedbackAudio() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!moveFeedbackAudioContext || moveFeedbackAudioContext.state === 'closed') {
+      moveFeedbackAudioContext = new AudioContextClass();
+    }
+    if (moveFeedbackAudioContext.state === 'suspended') {
+      void moveFeedbackAudioContext.resume().catch(() => {});
+    }
+    return moveFeedbackAudioContext;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function playMoveFeedback(accepted) {
+  const context = prepareMoveFeedbackAudio();
+  if (!context || context.state !== 'running') return;
+  try {
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(accepted ? 660 : 260, now);
+    if (!accepted) oscillator.frequency.exponentialRampToValueAtTime(190, now + 0.14);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + (accepted ? 0.09 : 0.16));
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + (accepted ? 0.1 : 0.17));
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+  } catch (_error) {
+    // Audio feedback is optional; a browser audio failure must not block moves.
+  }
+}
+
 function setVoiceMode(enabled) {
   const wasEnabled = state.voiceMode;
   state.voiceMode = enabled;
@@ -8178,6 +8220,7 @@ function setVoiceMode(enabled) {
     state.voiceOneShot = false;
   }
   if (enabled) {
+    prepareMoveFeedbackAudio();
     if (!wasEnabled) {
       voiceState.forceRecreateOnNextStart = true;
       voiceState.consecutiveFailures = 0;
