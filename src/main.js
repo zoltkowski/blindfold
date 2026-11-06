@@ -116,6 +116,10 @@ app.innerHTML = `
               Show Move Marks
             </label>
             <label class="checkbox-row">
+              <input id="puzzleAutoIntro" type="checkbox" />
+              Auto-play the puzzle introduction
+            </label>
+            <label class="checkbox-row">
               <input id="puzzleAutoOpponent" type="checkbox" checked />
               Auto-play opponent moves in lichess puzzles
             </label>
@@ -176,7 +180,7 @@ app.innerHTML = `
         </div>
       </div>
 
-      <div class="puzzle-panel" id="puzzlePanel" hidden>
+      <div class="puzzle-panel" id="puzzlePanel" role="status" aria-live="polite" hidden>
         <div><span id="puzzleContext">-</span></div>
       </div>
 
@@ -254,6 +258,7 @@ app.innerHTML = `
               <div class="toggle-option-buttons" role="group" aria-label="Movement modes">
                 <button id="movementModeEdgeBtn" type="button" data-movement-mode="edge" aria-pressed="true">Edge Squares</button>
                 <button id="movementModeRouteBtn" type="button" data-movement-mode="route" aria-pressed="true">Route</button>
+                <button id="movementModeCheckBtn" type="button" data-movement-mode="check" aria-pressed="true">Checks</button>
               </div>
             </label>
             <label id="movementPiecesRow" class="toggle-option-row">
@@ -377,7 +382,7 @@ app.innerHTML = `
             <path fill="currentColor" d="M10.457 6.161a.237.237 0 0 0-.296.165c-.8 2.785 2.819 5.579 5.214 7.428.653.504 1.216.939 1.591 1.292 1.745 1.642 2.564 2.851 2.733 3.178a.24.24 0 0 0 .275.122c.047-.013 4.726-1.3 3.934-4.574a.257.257 0 0 0-.023-.06L18.204 3.407 18.93.295a.24.24 0 0 0-.262-.293c-1.7.201-3.115.435-4.5 1.425-4.844-.323-8.718.9-11.213 3.539C.334 7.737-.246 11.515.085 14.128c.763 5.655 5.191 8.631 9.081 9.532.993.229 1.974.34 2.923.34 3.344 0 6.297-1.381 7.946-3.85a.24.24 0 0 0-.372-.3c-3.411 3.527-9.002 4.134-13.296 1.444-4.485-2.81-6.202-8.41-3.91-12.749C4.741 4.221 8.801 2.362 13.888 3.31c.056.01.115 0 .165-.029l.335-.197c.926-.546 1.961-1.157 2.873-1.279l-.694 1.993a.243.243 0 0 0 .02.202l6.082 10.192c-.193 2.028-1.706 2.506-2.226 2.611-.287-.645-.814-1.364-2.306-2.803-.422-.407-1.21-.941-2.124-1.56-2.364-1.601-5.937-4.02-5.391-5.984a.239.239 0 0 0-.165-.295z"></path>
           </svg>
         </a>
-        <button id="showSolutionBtn" type="button" hidden disabled aria-label="Show solution" title="Show solution">💡</button>
+        <button id="showSolutionBtn" type="button" hidden disabled aria-label="Show next move hint" title="Show next move hint">💡</button>
         <div id="reviewNav" class="review-nav">
           <button id="reviewPrevBtn" type="button" aria-label="Previous move" title="Previous move">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
@@ -458,6 +463,7 @@ const elements = {
   movementPieceKnightBtn: document.getElementById('movementPieceKnightBtn'),
   blindQuestionCount: document.getElementById('blindQuestionCount'),
   blindQuestionCountValue: document.getElementById('blindQuestionCountValue'),
+  puzzleAutoIntro: document.getElementById('puzzleAutoIntro'),
   puzzleAutoOpponent: document.getElementById('puzzleAutoOpponent'),
   puzzleFixedOrientation: document.getElementById('puzzleFixedOrientation'),
   puzzleDifficulty: document.getElementById('puzzleDifficulty'),
@@ -565,7 +571,7 @@ const BOARD_REVEAL_NEVER = 33;
 const SQUARE_COLOR_WRONG_PENALTY_MS = 10000;
 const SQUARE_COLOR_HISTORY_SIZE = 5;
 const MATTING_TYPE_KEYS = ['kq', 'kr', 'kbb', 'kbn'];
-const MOVEMENT_MODE_KEYS = ['edge', 'route'];
+const MOVEMENT_MODE_KEYS = ['edge', 'route', 'check'];
 const MOVEMENT_PIECE_KEYS = ['bishop', 'knight'];
 const BLIND_MATTING_MODES = new Set(['kq-matting', 'kr-matting', 'kbb-matting', 'kbn-matting']);
 
@@ -848,6 +854,7 @@ const state = {
   },
   puzzle: null,
   puzzleAutoPlaying: false,
+  puzzleAutoIntro: false,
   puzzleAutoOpponent: true,
   puzzleFixedOrientation: false,
   puzzleDifficulty: 'easiest',
@@ -859,7 +866,8 @@ const state = {
   },
   movementModes: {
     edge: true,
-    route: true
+    route: true,
+    check: true
   },
   movementPieces: {
     bishop: true,
@@ -1604,7 +1612,8 @@ function normalizeMattingTypes(raw) {
 function normalizeMovementModes(raw) {
   const base = {
     edge: true,
-    route: true
+    route: true,
+    check: true
   };
   if (!raw || typeof raw !== 'object') {
     return base;
@@ -1724,6 +1733,7 @@ function writeSettings() {
     ttsVoiceUri: state.ttsVoiceUri,
     ttsRate: state.ttsRate,
     ttsMovePauseMs: state.ttsMovePauseMs,
+    puzzleAutoIntro: state.puzzleAutoIntro,
     puzzleAutoOpponent: state.puzzleAutoOpponent,
     puzzleFixedOrientation: state.puzzleFixedOrientation,
     puzzleDifficulty: state.puzzleDifficulty,
@@ -1761,6 +1771,9 @@ function loadSettingsIntoState() {
   }
   if (typeof saved.voiceSticky === 'boolean') {
     state.voiceSticky = saved.voiceSticky;
+  }
+  if (typeof saved.puzzleAutoIntro === 'boolean') {
+    state.puzzleAutoIntro = saved.puzzleAutoIntro;
   }
   if (typeof saved.puzzleAutoOpponent === 'boolean') {
     state.puzzleAutoOpponent = saved.puzzleAutoOpponent;
@@ -1856,6 +1869,7 @@ function applySettingsToUi() {
   elements.ttsMovePause.value = String(state.ttsMovePauseMs);
   elements.ttsMovePauseValue.textContent = `${state.ttsMovePauseMs} ms`;
   elements.ttsVoice.value = state.ttsVoiceUri;
+  elements.puzzleAutoIntro.checked = state.puzzleAutoIntro;
   elements.puzzleAutoOpponent.checked = state.puzzleAutoOpponent;
   elements.puzzleFixedOrientation.checked = state.puzzleFixedOrientation;
   elements.puzzleDifficulty.value = state.puzzleDifficulty;
@@ -3022,8 +3036,11 @@ function updatePuzzlePanel() {
 
   const p = state.puzzle;
   const wrong = state.puzzleLastAttempt?.wrong ? state.puzzleLastAttempt.text : '';
-  elements.puzzlePanel.hidden = !wrong;
-  elements.puzzleContext.textContent = wrong ? 'Wrong move: ' + wrong : '';
+  const hint = state.puzzleLastAttempt?.hint;
+  elements.puzzlePanel.classList.toggle('is-solved', p.solved);
+  elements.puzzlePanel.hidden = !wrong && !hint && !p.solved;
+  elements.puzzleContext.textContent = p.solved ? '✓ Puzzle solved! End of solution.'
+    : wrong ? 'Wrong move: ' + wrong : hint ? 'Hint: ' + hint : '';
   elements.openPuzzleLinkBtn.hidden = false;
   elements.openPuzzleLinkBtn.href = `https://lichess.org/training/${p.id}`;
   elements.showSolutionBtn.hidden = false;
@@ -3734,7 +3751,7 @@ async function loadLichessPuzzle() {
 
     state.game = setGameFromVerboseMoves(verbose, contextStartPly) ?? new Chess(baseGame.fen());
     updateAll();
-    if (contextSans.length) {
+    if (contextSans.length && state.puzzleAutoIntro) {
       handleReviewPlay();
     }
   } catch (error) {
@@ -5132,8 +5149,8 @@ function askNextBishopRouteQuestion() {
   speakBlindPrompt(`${from} ${to}`);
 }
 
-function askNextBishopQuestion() {
-  state.blindPuzzles.movementVariant = pickMovementModeForQuestion();
+function askNextBishopQuestion(variant) {
+  state.blindPuzzles.movementVariant = variant;
   if (state.blindPuzzles.movementVariant === 'route') {
     askNextBishopRouteQuestion();
     return;
@@ -5181,8 +5198,8 @@ function askNextKnightRouteQuestion() {
   speakBlindPrompt(`${from} ${to}`);
 }
 
-function askNextKnightQuestion() {
-  state.blindPuzzles.movementVariant = pickMovementModeForQuestion();
+function askNextKnightQuestion(variant) {
+  state.blindPuzzles.movementVariant = variant;
   if (state.blindPuzzles.movementVariant === 'route') {
     askNextKnightRouteQuestion();
     return;
@@ -5191,12 +5208,13 @@ function askNextKnightQuestion() {
 }
 
 function askNextMovementQuestion() {
-  if (Math.random() < 1 / 3) {
+  const variant = pickMovementModeForQuestion();
+  if (variant === 'check') {
     askNextCheckQuestion();
   } else if (pickMovementPieceForQuestion() === 'knight') {
-    askNextKnightQuestion();
+    askNextKnightQuestion(variant);
   } else {
-    askNextBishopQuestion();
+    askNextBishopQuestion(variant);
   }
   updateSquareColorControlsVisibility();
   if (state.revealPosition) updateBoard();
@@ -6088,7 +6106,8 @@ function nextPuzzleMoveText() {
   if (state.sessionMode !== 'puzzle' || !state.puzzle || state.puzzle.solved) {
     return null;
   }
-  const mv = state.puzzle.lineMoves[state.puzzle.solutionIndex];
+  const index = Math.max(state.puzzle.solutionIndex, state.puzzle.contextMoves.length);
+  const mv = state.puzzle.lineMoves[index];
   if (!mv) {
     return null;
   }
@@ -6122,9 +6141,9 @@ function showPuzzleSolution() {
   }
 
   stopReviewPlayback();
-  state.puzzle.revealSolutionText = true;
-  state.puzzleLastAttempt = null;
-  state.puzzle.solutionIndex = state.puzzle.lineMoves.length;
+  const hint = nextPuzzleMoveText();
+  if (!hint) return;
+  state.puzzleLastAttempt = { hint };
   updateAll();
 }
 
@@ -6903,7 +6922,7 @@ function applyPlayerMove(text) {
     const indexAfterUserMove = state.puzzle.solutionIndex;
     autoPlayPuzzleOpponentMovesIfEnabled();
     const showOpponentReply = !state.puzzle.solved && state.puzzle.solutionIndex > indexAfterUserMove;
-    if (isMoveSpeechEnabled() && !showOpponentReply) {
+    if (!state.puzzle.solved && isMoveSpeechEnabled() && !showOpponentReply) {
       restorePuzzleView();
     } else {
       syncPuzzleToProgress();
@@ -8377,6 +8396,11 @@ elements.speakCheck.addEventListener('change', () => {
 
 elements.voiceOnOtherPuzzles.addEventListener('change', () => {
   state.voiceOnOtherPuzzles = elements.voiceOnOtherPuzzles.checked;
+  writeSettings();
+});
+
+elements.puzzleAutoIntro.addEventListener('change', () => {
+  state.puzzleAutoIntro = elements.puzzleAutoIntro.checked;
   writeSettings();
 });
 
