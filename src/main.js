@@ -5043,7 +5043,9 @@ function finishBlindPuzzleGeneric(success, wrongReason = '') {
   stopBlindPuzzleTimer();
   updateBlindPanel();
   if (success) {
-    elements.statusText.textContent = `Game over. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
+    elements.statusText.textContent = state.blindPuzzles.mode === 'position-recall'
+      ? `Perfect! You recalled all ${state.blindPuzzles.total} pieces correctly.`
+      : `Game over. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
   } else {
     const tail = wrongReason ? ` ${wrongReason}` : '';
     elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.${tail}`;
