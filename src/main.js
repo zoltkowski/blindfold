@@ -3273,7 +3273,7 @@ async function evaluateAndSetFollowQuizFeedback(fenBefore, guessedUci, token) {
   updateAll();
 }
 
-function applyFollowQuizUserMove(text) {
+function applyFollowQuizUserMove(text, options = {}) {
   if (!isFollowQuizPlayable()) {
     elements.statusText.textContent = 'Follow mode is read-only. Turn Quiz on to enter moves.';
     return false;
@@ -3293,7 +3293,12 @@ function applyFollowQuizUserMove(text) {
     return false;
   }
 
-  let guess = findMatchingMove(text);
+  const candidates = matchingMoveCandidates(text, options);
+  if (candidates.length > 1) {
+    reportAmbiguousMove(options.heardText ?? text, candidates);
+    return false;
+  }
+  let guess = candidates[0] ?? null;
   if (!guess) {
     state.followGame.quizFeedback = 'Invalid move format.';
     updateStatus();
@@ -3682,6 +3687,9 @@ function trySkipContextToSolutionByInput(text) {
   if (!inputMatchesTargetMove(text, firstSolutionMove)) {
     return false;
   }
+  const game = new Chess(state.puzzle.startFen);
+  const candidates = matchingMoveCandidates(text, { game });
+  if (candidates.length !== 1 || uciFromMove(candidates[0]) !== firstSolutionMove.uci) return false;
   state.puzzle.solutionIndex = contextCount;
   state.puzzleViewIndex = puzzleProgressAbsPly();
   return syncPuzzleToProgress();
@@ -6703,6 +6711,7 @@ function normalizeSpokenMoveText(rawText, moveLanguage) {
     .trim();
 
   if (moveLanguage === 'pl') {
+    if (/^debile[.!?]?$/.test(spoken)) return 'dxe';
     move = spoken.replace(/\bbije\b/g, 'x')
       .replace(/^skoczek\s+/, 'S')
       .replace(/^goniec\s+/, 'G')
@@ -6793,12 +6802,23 @@ function normalizeMoveInput(inputRaw) {
   return { type: 'san', value: move };
 }
 
-function findMatchingMove(text) {
+function matchingMoveCandidates(text, { allowRankFallback = false, game = state.game } = {}) {
   const parsed = normalizeMoveInput(text);
-  const legal = state.game.moves({ verbose: true });
+  const legal = game.moves({ verbose: true });
   if (parsed.type === 'uci') {
     const uciMatches = legal.filter((mv) => uciFromMove(mv) === parsed.value);
-    return uciMatches.length === 1 ? uciMatches[0] : null;
+    return uciMatches;
+  }
+
+  // A file-only pawn capture must be unique across all ranks.
+  // Never resolve ambiguity using the puzzle solution or a rank fallback.
+  const shortPawnCapture = parsed.value.match(/^([a-h])x?([a-h])[+#]?$/i);
+  if (shortPawnCapture) {
+    const candidates = legal.filter((move) => move.piece === 'p'
+      && move.from[0] === shortPawnCapture[1].toLowerCase()
+      && move.to[0] === shortPawnCapture[2].toLowerCase()
+      && (move.flags.includes('c') || move.flags.includes('e')));
+    return candidates;
   }
 
   if (parsed.type === 'san') {
@@ -6807,12 +6827,7 @@ function findMatchingMove(text) {
       const polSan = englishToPolishSan(mv.san);
       return [engSan, polSan].includes(parsed.value);
     });
-    if (exactMatches.length === 1) {
-      return exactMatches[0];
-    }
-    if (exactMatches.length > 1) {
-      return null;
-    }
+    if (exactMatches.length) return exactMatches;
 
     const parsedLoose = normalizeSanLooseMatch(parsed.value);
     const looseMatches = legal.filter((mv) => {
@@ -6823,22 +6838,19 @@ function findMatchingMove(text) {
       const polSan = englishToPolishSan(mv.san);
       return [engSan, polSan].some((san) => normalizeSanLooseMatch(san) === parsedLoose);
     });
-    if (looseMatches.length === 1) {
-      return looseMatches[0];
-    }
-    if (looseMatches.length > 1) {
-      return null;
-    }
+    if (looseMatches.length) return looseMatches;
   }
 
   if (parsed.type === 'san') {
     const stripped = parsed.value.replace(/[+#]/g, '');
-    const target = (stripped.match(/([a-h][1-8])$/) ?? [])[1];
+    const target = (stripped.match(/([a-h][1-8])(?:=[QRBN])?$/) ?? [])[1];
     const first = stripped[0];
     const wantedPiece = ({ K: 'k', Q: 'q', R: 'r', B: 'b', N: 'n' }[first] ?? 'p');
     const promotion = (stripped.match(/=([QRBN])$/) ?? [])[1]?.toLowerCase();
     const captureRequired = stripped.includes('x');
-    const pawnCaptureFile = wantedPiece === 'p' ? stripped.match(/^([a-h])x/)?.[1] : null;
+    const pawnCaptureFile = wantedPiece === 'p' ? stripped.match(/^([a-h])x?[a-h][1-8]/)?.[1] : null;
+    const origin = wantedPiece !== 'p' && target
+      ? stripped.slice(1, stripped.lastIndexOf(target)).replace('x', '') : '';
 
     if (target) {
       const candidates = legal.filter((mv) =>
@@ -6846,61 +6858,37 @@ function findMatchingMove(text) {
         mv.piece === wantedPiece &&
         (!captureRequired || mv.flags.includes('c') || mv.flags.includes('e')) &&
         (!pawnCaptureFile || mv.from[0] === pawnCaptureFile) &&
+        (!origin || (origin.length === 2 ? mv.from === origin : mv.from.includes(origin))) &&
         (!promotion || mv.promotion === promotion)
       );
-      if (!promotion) {
-        const queenPromotion = candidates.filter((mv) => mv.promotion === 'q');
-        if (queenPromotion.length === 1) {
-          return queenPromotion[0];
-        }
-      }
-      if (candidates.length === 1) {
-        return candidates[0];
-      }
+      if (candidates.length) return candidates;
     }
 
-    // Allow short pawn capture notation like "dc" / "dxc" when unique.
-    const shortPawnCap = stripped.toLowerCase().match(/^([a-h])x?([a-h])$/);
-    if (shortPawnCap) {
-      const fromFile = shortPawnCap[1];
-      const toFile = shortPawnCap[2];
-      const candidates = legal.filter((mv) =>
-        mv.piece === 'p'
-        && mv.from[0] === fromFile
-        && mv.to[0] === toFile
-        && (mv.flags.includes('c') || mv.flags.includes('e'))
-      );
-      if (candidates.length === 1) {
-        return candidates[0];
-      }
-    }
   }
 
-  return null;
+  if (allowRankFallback && parsed.type === 'san') {
+    // Speech often preserves the rank while losing or confusing the file.
+    const pattern = parsed.value.match(/^([KQRBN])(x?)([a-z.]?)([1-8])[+#]?$/);
+    if (pattern) {
+      const piece = ({ K: 'k', Q: 'q', R: 'r', B: 'b', N: 'n' })[pattern[1]];
+      const candidates = legal.filter((move) => move.piece === piece
+        && move.to[1] === pattern[4]
+        && (!pattern[2] || move.flags.includes('c') || move.flags.includes('e')));
+      return candidates;
+    }
+  }
+  return [];
 }
 
-function findLooseExpectedPuzzleMove(text) {
-  if (state.sessionMode !== 'puzzle' || !state.puzzle || state.puzzle.solved) {
-    return null;
-  }
+function findMatchingMove(text, options = {}) {
+  const candidates = matchingMoveCandidates(text, options);
+  return candidates.length === 1 ? candidates[0] : null;
+}
 
-  const parsed = normalizeMoveInput(text);
-  if (parsed.type !== 'san') {
-    return null;
-  }
-
-  const expectedUci = currentPuzzleExpectedUci();
-  if (!expectedUci) {
-    return null;
-  }
-  const expectedMove = findLegalMoveByUci(expectedUci);
-  if (!expectedMove) {
-    return null;
-  }
-
-  const inputLoose = normalizeSanLooseMatch(parsed.value);
-  const expectedLoose = normalizeSanLooseMatch(expectedMove.san);
-  return inputLoose === expectedLoose ? expectedMove : null;
+function reportAmbiguousMove(text, candidates) {
+  const moves = candidates.map(move => state.moveLanguage === 'pl' ? englishToPolishSan(move.san) : move.san);
+  elements.voiceStatus.textContent = `Heard: ${text}. Did you mean: ${moves.join(', ')}?`;
+  elements.statusText.textContent = 'Ambiguous move. Please specify the full move.';
 }
 
 function normalizeVoiceMoveForHandling(rawText) {
@@ -6943,7 +6931,7 @@ function setPuzzleLastAttempt(text) {
   state.puzzleLastAttempt = entered ? { text: entered, wrong: true } : null;
 }
 
-function applyPlayerMove(text) {
+function applyPlayerMove(text, options = {}) {
   stopReviewPlayback();
   if (state.sessionMode === 'game' && !state.gameStarted) {
     elements.statusText.textContent = 'Press New Game to start.';
@@ -6958,7 +6946,7 @@ function applyPlayerMove(text) {
     clearBlindClickSelection();
   }
   if (state.sessionMode === 'follow-game') {
-    return applyFollowQuizUserMove(text);
+    return applyFollowQuizUserMove(text, options);
   }
 
   if (isReviewLocked()) {
@@ -6987,10 +6975,13 @@ function applyPlayerMove(text) {
     updateAll();
   }
 
-  let match = findMatchingMove(text);
-  if (!match) {
-    match = findLooseExpectedPuzzleMove(text);
+  const candidates = matchingMoveCandidates(text, options);
+  if (candidates.length > 1) {
+    restorePuzzleView();
+    reportAmbiguousMove(options.heardText ?? text, candidates);
+    return false;
   }
+  let match = candidates[0] ?? null;
   if (!match) {
     if (state.sessionMode === 'puzzle' && state.puzzle && !state.puzzle.solved) {
       setPuzzleLastAttempt(text);
@@ -7005,7 +6996,7 @@ function applyPlayerMove(text) {
     let playedUci = uciFromMove(match);
     let expectedUci = currentPuzzleExpectedUci();
     if ((!expectedUci || playedUci !== expectedUci) && trySkipContextToSolution(playedUci)) {
-      match = findMatchingMove(text);
+      match = findMatchingMove(text, options);
       if (!match) {
         elements.statusText.textContent = 'Could not match move after context jump.';
         restorePuzzleView();
@@ -8104,8 +8095,8 @@ function ensureVoiceRecognition() {
     }
     const inPuzzleMoveCheck = state.sessionMode === 'puzzle' && !!state.puzzle && !state.puzzle.solved;
     const recognizedMoveAttempt = inPuzzleMoveCheck
-      && (!!findMatchingMove(moveInput) || !!findLooseExpectedPuzzleMove(moveInput));
-    const ok = applyPlayerMove(moveInput);
+      && (!!findMatchingMove(moveInput, { allowRankFallback: true }));
+    const ok = applyPlayerMove(moveInput, { allowRankFallback: true, heardText });
     const recognizedButWrong = !ok && recognizedMoveAttempt;
     playMoveFeedback(ok);
     if (state.voiceOneShot && (ok || recognizedButWrong)) {
