@@ -575,11 +575,12 @@ const POSITION_SOLVED_KEY = 'blind_position_solved_v1';
 const GAME_SOLVED_KEY = 'blind_game_solved_v1';
 const SQUARE_COLOR_STATS_KEY = 'blind_square_color_stats_v1';
 const SQUARES_STATS_KEY = 'blind_squares_stats_v1';
+const SQUARES_RECORD_KEY = 'blind_squares_best_avg_v1';
 const SQUARE_COLOR_RECORDS_KEY = 'blind_square_color_records_v1';
 const STORAGE_DB_NAME = 'blindfold_chess_persist_v1';
 const STORAGE_DB_VERSION = 1;
 const STORAGE_STORE_NAME = 'app_kv';
-const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY, SQUARES_STATS_KEY];
+const PERSISTED_KEYS = [SETTINGS_KEY, POSITION_SOLVED_KEY, GAME_SOLVED_KEY, SQUARE_COLOR_STATS_KEY, SQUARE_COLOR_RECORDS_KEY, SQUARES_STATS_KEY, SQUARES_RECORD_KEY];
 const BOARD_REVEAL_MIN = 1;
 const BOARD_REVEAL_NEVER = 33;
 const SQUARE_COLOR_WRONG_PENALTY_MS = 10000;
@@ -941,8 +942,10 @@ const state = {
   squaresStats: {},
   squareColorRecords: {
     bestTotalMsByCount: {},
-    bestAvgMsGte20: null
+    bestAvgMsGte20: null,
+    bestAvgMsGte10: null
   },
+  squaresBestAvgMs: null,
   puzzleViewIndex: 0,
   reviewPly: null,
   revealPosition: false,
@@ -1251,7 +1254,8 @@ function writeSquareColorStats() {
 function sanitizeSquareColorRecords(raw) {
   const out = {
     bestTotalMsByCount: {},
-    bestAvgMsGte20: null
+    bestAvgMsGte20: null,
+    bestAvgMsGte10: null
   };
   if (!raw || typeof raw !== 'object') {
     return out;
@@ -1274,6 +1278,9 @@ function sanitizeSquareColorRecords(raw) {
   if (Number.isFinite(bestAvg) && bestAvg > 0) {
     out.bestAvgMsGte20 = Math.max(1, Math.floor(bestAvg));
   }
+  const bestAvg10 = Number(raw.bestAvgMsGte10);
+  out.bestAvgMsGte10 = Number.isFinite(bestAvg10) && bestAvg10 > 0
+    ? Math.max(1, Math.floor(bestAvg10)) : out.bestAvgMsGte20;
   return out;
 }
 
@@ -5016,6 +5023,35 @@ function hasStopToken(raw) {
   return /\b(stop|koniec|dosc|wystarczy)\b/.test(text);
 }
 
+function squareExerciseAverageResult(mode) {
+  const bp = state.blindPuzzles;
+  const average = Math.max(1, averageMs(bp.responseTimesMs));
+  const previous = mode === 'squares' ? state.squaresBestAvgMs : state.squareColorRecords.bestAvgMsGte10;
+  const eligible = bp.total >= 10 && bp.responseTimesMs.length === bp.total;
+  const improved = eligible && previous !== null && average < previous;
+  const first = eligible && previous === null;
+  let best = previous;
+  if (improved || first) {
+    best = average;
+    if (mode === 'squares') {
+      state.squaresBestAvgMs = best;
+      void writePersistentValue(SQUARES_RECORD_KEY, best);
+    } else {
+      state.squareColorRecords.bestAvgMsGte10 = best;
+      writeSquareColorRecords();
+    }
+  }
+  const bestText = best === null ? '-' : formatMsAsSeconds(best);
+  const recordText = improved ? ' New average record!' : first ? ' First average record!' : '';
+  const minimumText = eligible ? '' : ' Complete at least 10 questions to set a record.';
+  return `Average: ${formatMsAsSeconds(average)}. Best average: ${bestText}.${recordText}${minimumText}`;
+}
+
+function squareExerciseBestText(mode) {
+  const best = mode === 'squares' ? state.squaresBestAvgMs : state.squareColorRecords.bestAvgMsGte10;
+  return `Best average: ${best === null ? '-' : formatMsAsSeconds(best)}.`;
+}
+
 function finishSquareColors(success) {
   state.blindPuzzles.running = false;
   state.blindPuzzles.elapsedMs = state.blindPuzzles.startAt ? (Date.now() - state.blindPuzzles.startAt) : state.blindPuzzles.elapsedMs;
@@ -5024,46 +5060,14 @@ function finishSquareColors(success) {
   if (success) {
     const total = state.blindPuzzles.total;
     const achievedTotalMs = Math.max(1, Math.floor(state.blindPuzzles.elapsedMs));
-    const achievedAvgMs = Math.max(0, averageMs(state.blindPuzzles.responseTimesMs));
-    const countKey = String(total);
-    const prevBestTotal = Number(state.squareColorRecords.bestTotalMsByCount[countKey]);
-    const validPrevBestTotal = Number.isFinite(prevBestTotal) && prevBestTotal > 0 ? prevBestTotal : null;
-    const beatBestTotal = validPrevBestTotal === null || achievedTotalMs < validPrevBestTotal;
-    const bestTotalAfter = beatBestTotal ? achievedTotalMs : validPrevBestTotal;
-    state.squareColorRecords.bestTotalMsByCount[countKey] = bestTotalAfter;
-    const bestTotalLabel = beatBestTotal
-      ? `${formatBlindTime(bestTotalAfter)} (prev: ${validPrevBestTotal !== null ? formatBlindTime(validPrevBestTotal) : '-'})`
-      : formatBlindTime(bestTotalAfter);
-
-    let bestAvgAfter = null;
-    let validPrevBestAvg = null;
-    let beatBestAvg = false;
-    let bestAvgLabel = null;
-    if (total >= 20) {
-      const prevBestAvg = Number(state.squareColorRecords.bestAvgMsGte20);
-      validPrevBestAvg = Number.isFinite(prevBestAvg) && prevBestAvg > 0 ? prevBestAvg : null;
-      beatBestAvg = validPrevBestAvg === null || achievedAvgMs < validPrevBestAvg;
-      bestAvgAfter = beatBestAvg ? achievedAvgMs : validPrevBestAvg;
-      state.squareColorRecords.bestAvgMsGte20 = bestAvgAfter;
-      bestAvgLabel = beatBestAvg
-        ? `${formatMsAsSeconds(bestAvgAfter)} (prev: ${validPrevBestAvg !== null ? formatMsAsSeconds(validPrevBestAvg) : '-'})`
-        : formatMsAsSeconds(bestAvgAfter);
-    }
-    writeSquareColorRecords();
-
     const lines = [
       `Congratulations! Result: ${state.blindPuzzles.correct}/${total}.`,
-      `Time: ${formatBlindTime(achievedTotalMs)} (Best: ${bestTotalLabel}).`
+      `Time: ${formatBlindTime(achievedTotalMs)}.`,
+      squareExerciseAverageResult('square-colors')
     ];
-    if (total >= 20 && bestAvgAfter !== null && bestAvgLabel !== null) {
-      lines.push(`Avg: ${formatMsAsSeconds(achievedAvgMs)} (Best: ${bestAvgLabel}).`);
-    }
-    if (beatBestTotal || beatBestAvg) {
-      lines.push('New personal record! Celebration time!');
-    }
     elements.statusText.textContent = lines.join(' ');
   } else {
-    elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
+    elements.statusText.textContent = `Game over. Wrong answer. Result: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}. ${squareExerciseBestText('square-colors')}`;
   }
   speakBlindGameOverMessage(success);
   setVoiceMode(false);
@@ -6056,9 +6060,10 @@ function answerSquaresExercise(square) {
     stopBlindPuzzleTimer();
     if (state.speaking) cancelTtsPlayback();
     updateAll();
-    elements.statusText.textContent = `Wrong square. Squares found: ${state.blindPuzzles.correct}.`;
+    elements.statusText.textContent = `Wrong square. Squares found: ${state.blindPuzzles.correct}. ${squareExerciseBestText('squares')}`;
     return;
   }
+  state.blindPuzzles.responseTimesMs.push(responseMs);
   state.blindPuzzles.correct += 1;
   state.blindPuzzles.asked += 1;
   if (state.blindPuzzles.correct >= state.blindPuzzles.total) {
@@ -6067,7 +6072,7 @@ function answerSquaresExercise(square) {
     stopBlindPuzzleTimer();
     if (state.speaking) cancelTtsPlayback();
     updateAll();
-    elements.statusText.textContent = `Completed: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}.`;
+    elements.statusText.textContent = `Completed: ${state.blindPuzzles.correct}/${state.blindPuzzles.total}. ${squareExerciseAverageResult('squares')}`;
     return;
   }
   askNextSquaresExercise();
@@ -8946,7 +8951,7 @@ elements.blindStopBtn.addEventListener('click', () => {
     stopBlindPuzzleTimer();
     if (state.speaking) cancelTtsPlayback();
     updateAll();
-    elements.statusText.textContent = `Exercise stopped. Squares found: ${state.blindPuzzles.correct}.`;
+    elements.statusText.textContent = `Exercise stopped. Squares found: ${state.blindPuzzles.correct}. ${squareExerciseBestText('squares')}`;
     return;
   }
   submitBlindStop();
@@ -9237,6 +9242,8 @@ async function bootstrapApp() {
   state.squareColorStats = readSquareColorStats();
   state.squaresStats = sanitizeSquareColorStats(readPersistentValue(SQUARES_STATS_KEY));
   state.squareColorRecords = readSquareColorRecords();
+  const squaresBest = Number(readPersistentValue(SQUARES_RECORD_KEY));
+  state.squaresBestAvgMs = Number.isFinite(squaresBest) && squaresBest > 0 ? squaresBest : null;
   loadSettingsIntoState();
   syncEngineControlUi();
   applySettingsToUi();
