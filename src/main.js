@@ -376,6 +376,7 @@ app.innerHTML = `
       </div>
 
       <div id="movesPanel" class="moves-panel" hidden>
+        <button id="followMobileUndoBtn" class="follow-mobile-record-control" type="button" hidden title="Remove the last move">Undo Move</button>
         <button id="toggleMovesBtn" type="button" aria-label="Show moves" title="Show moves">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
             <path d="M2.5 4 6 6 2.5 8ZM2.5 10 6 12 2.5 14ZM2.5 16 6 18 2.5 20Z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>
@@ -404,6 +405,7 @@ app.innerHTML = `
         <div id="movesWrap" class="moves-wrap">
           <div id="movesBody" class="moves-inline"></div>
         </div>
+        <button id="followMobileSaveBtn" class="follow-mobile-record-control" type="button" hidden>Save PGN</button>
       </div>
     </section>
   </main>
@@ -485,6 +487,8 @@ const elements = {
   followRecordingActions: document.getElementById('followRecordingActions'),
   followUndoMoveBtn: document.getElementById('followUndoMoveBtn'),
   followSavePgnBtn: document.getElementById('followSavePgnBtn'),
+  followMobileUndoBtn: document.getElementById('followMobileUndoBtn'),
+  followMobileSaveBtn: document.getElementById('followMobileSaveBtn'),
   followModeQuizBtn: document.getElementById('followModeQuizBtn'),
   followModeActions: document.getElementById('followModeActions'),
   followQuizAutoColor: document.getElementById('followQuizAutoColor'),
@@ -1926,6 +1930,7 @@ function syncViewModeClasses() {
   document.body.classList.toggle('game-default-view', isDefaultGameView);
   document.body.classList.toggle('puzzle-mode', isPuzzleView);
   document.body.classList.toggle('follow-mode', state.sessionMode === 'follow-game');
+  document.body.classList.toggle('follow-record-mode', state.sessionMode === 'follow-record');
   document.body.classList.toggle('follow-browse-mode', state.sessionMode === 'follow-game' && state.followGame.mode === 'browse' && !!state.followGame.current);
   document.body.classList.toggle('blind-mode', isBlindView);
   document.body.classList.toggle('blind-position-mode', isBlindPositionView);
@@ -2289,7 +2294,8 @@ function normalizedBoardRevealEvery() {
 }
 
 function isAutoBoardRevealNow() {
-  if (state.sessionMode !== 'game' || !state.gameStarted || state.game.isGameOver()) {
+  const recording = state.sessionMode === 'follow-record';
+  if ((!recording && (state.sessionMode !== 'game' || !state.gameStarted)) || state.game.isGameOver()) {
     return false;
   }
   if (state.displayMode !== 'no-board') {
@@ -2302,7 +2308,7 @@ function isAutoBoardRevealNow() {
   if (!isUserTurn()) {
     return false;
   }
-  const played = countPlayerMovesPlayed();
+  const played = recording ? state.game.history().length : countPlayerMovesPlayed();
   return played > 0 && played % interval === 0;
 }
 
@@ -2342,7 +2348,7 @@ function boardGameForDisplayedPieces(boardGame) {
     return setGameFromVerboseMoves(current.moveVerbose, revealedPlies) ?? boardGame;
   }
 
-  if (state.sessionMode !== 'game' || !state.gameStarted) {
+  if (state.sessionMode !== 'follow-record' && (state.sessionMode !== 'game' || !state.gameStarted)) {
     return boardGame;
   }
   if (state.game.isGameOver() || isReviewLocked() || state.revealPosition) {
@@ -2576,8 +2582,10 @@ function isBlindClickInputActive(boardIsStale) {
   if (state.sessionMode === 'puzzle') {
     return !!state.puzzle && !state.puzzle.solved && !state.puzzleAutoPlaying;
   }
-  if (state.sessionMode === 'follow-game') {
-    if (!isFollowQuizPlayable() || isFollowQuizAutoTurn() || state.followGame.quizEvaluating || isReviewLocked()) {
+  if (state.sessionMode === 'follow-game' || state.sessionMode === 'follow-record') {
+    if (isReviewLocked() || state.game.isGameOver()
+      || (state.sessionMode === 'follow-game'
+        && (!isFollowQuizPlayable() || isFollowQuizAutoTurn() || state.followGame.quizEvaluating))) {
       return false;
     }
     const turn = state.game.turn();
@@ -3398,6 +3406,8 @@ function restartFollowCurrent() {
 function updateFollowPanel() {
   const recording = state.sessionMode === 'follow-record';
   const active = state.sessionMode === 'follow-game' || recording;
+  elements.followMobileUndoBtn.hidden = !recording;
+  elements.followMobileSaveBtn.hidden = !recording || state.movesVisible;
   elements.followPanel.hidden = !active || state.followGame.mode === 'quiz';
   elements.followRecordingActions.hidden = !recording;
   elements.followModeActions.hidden = !active || recording || !state.followGame.current;
@@ -3405,6 +3415,7 @@ function updateFollowPanel() {
     elements.followGamePickerRow.hidden = true;
     elements.followGamePickerActions.hidden = true;
     elements.followUndoMoveBtn.disabled = state.game.history().length === 0;
+    elements.followMobileUndoBtn.disabled = elements.followUndoMoveBtn.disabled;
     elements.followGameTitle.textContent = 'New game';
     elements.followGameMeta.textContent = '';
     return;
@@ -8394,7 +8405,7 @@ elements.boardReveal.addEventListener('input', () => {
   elements.boardReveal.value = String(bounded);
   elements.boardRevealValue.textContent = formatBoardRevealLabel(bounded);
   writeSettings();
-  if (state.sessionMode === 'game' || state.sessionMode === 'follow-game') {
+  if (state.sessionMode === 'game' || state.sessionMode === 'follow-game' || state.sessionMode === 'follow-record') {
     updateBoard();
   }
 });
@@ -8759,6 +8770,7 @@ window.addEventListener('resize', scheduleMovesViewport);
 
 function syncMovesVisibilityUi() {
   elements.movesWrap.style.display = state.movesVisible ? 'block' : 'none';
+  elements.followMobileSaveBtn.hidden = state.sessionMode !== 'follow-record' || state.movesVisible;
   elements.toggleMovesBtn.hidden = false;
   const label = state.movesVisible ? 'Hide moves' : 'Show moves';
   elements.toggleMovesBtn.setAttribute('aria-label', label);
@@ -8816,6 +8828,8 @@ elements.followUploadBtn.addEventListener('click', () => {
 elements.followNewGameBtn.addEventListener('click', startFollowRecording);
 elements.followUndoMoveBtn.addEventListener('click', undoFollowRecordingMove);
 elements.followSavePgnBtn.addEventListener('click', saveFollowRecording);
+elements.followMobileUndoBtn.addEventListener('click', undoFollowRecordingMove);
+elements.followMobileSaveBtn.addEventListener('click', saveFollowRecording);
 elements.followUploadInput.addEventListener('change', async () => {
   const input = elements.followUploadInput;
   const file = input.files?.[0];
