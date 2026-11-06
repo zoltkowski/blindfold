@@ -194,7 +194,11 @@ app.innerHTML = `
             <button id="followLoadBtn" type="button">Load</button>
             <button id="followRandomBtn" type="button">Random</button>
             <button id="followUploadBtn" type="button">Upload PGN</button>
+            <button id="followNewGameBtn" type="button">New Game</button>
             <input id="followUploadInput" type="file" accept=".pgn,text/plain" hidden />
+          </div>
+          <div id="followRecordingActions" class="follow-actions" hidden>
+            <button id="followSavePgnBtn" type="button">Save PGN</button>
           </div>
           <div id="followGameTitle" class="follow-title">-</div>
           <div id="followModeActions" class="follow-actions follow-mode-actions" hidden>
@@ -476,6 +480,9 @@ const elements = {
   followRandomBtn: document.getElementById('followRandomBtn'),
   followUploadBtn: document.getElementById('followUploadBtn'),
   followUploadInput: document.getElementById('followUploadInput'),
+  followNewGameBtn: document.getElementById('followNewGameBtn'),
+  followRecordingActions: document.getElementById('followRecordingActions'),
+  followSavePgnBtn: document.getElementById('followSavePgnBtn'),
   followModeQuizBtn: document.getElementById('followModeQuizBtn'),
   followModeActions: document.getElementById('followModeActions'),
   followQuizAutoColor: document.getElementById('followQuizAutoColor'),
@@ -2432,7 +2439,7 @@ function updateBoard() {
   const positionRecallAnswerMode = canEditPositionRecall();
   const followQuizInput = followMode && isFollowQuizPlayable()
     && !isFollowQuizAutoTurn() && !state.followGame.quizEvaluating;
-  const movableColor = followQuizInput ? turnColor : (state.sessionMode === 'puzzle' || followMode)
+  const movableColor = (followQuizInput || state.sessionMode === 'follow-record') ? turnColor : (state.sessionMode === 'puzzle' || followMode)
     ? undefined
     : (reviewLocked
       ? undefined
@@ -3387,9 +3394,18 @@ function restartFollowCurrent() {
 }
 
 function updateFollowPanel() {
-  const active = state.sessionMode === 'follow-game';
+  const recording = state.sessionMode === 'follow-record';
+  const active = state.sessionMode === 'follow-game' || recording;
   elements.followPanel.hidden = !active || state.followGame.mode === 'quiz';
-  elements.followModeActions.hidden = !active || !state.followGame.current;
+  elements.followRecordingActions.hidden = !recording;
+  elements.followModeActions.hidden = !active || recording || !state.followGame.current;
+  if (recording) {
+    elements.followGamePickerRow.hidden = true;
+    elements.followGamePickerActions.hidden = true;
+    elements.followGameTitle.textContent = 'New game';
+    elements.followGameMeta.textContent = '';
+    return;
+  }
   if (!active) {
     elements.followGamePickerRow.hidden = false;
     elements.followGamePickerActions.hidden = false;
@@ -5745,6 +5761,35 @@ function startFollowGame() {
   updateAll();
 }
 
+function startFollowRecording() {
+  resetFollowGameSelectionState();
+  stopReviewPlayback();
+  setVoiceMode(false);
+  state.sessionMode = 'follow-record';
+  state.followGame.mode = 'browse';
+  state.revealPosition = false;
+  state.game = new Chess();
+  state.reviewPly = null;
+  updateAll();
+}
+
+function saveFollowRecording() {
+  const game = new Chess();
+  for (const move of state.game.history({ verbose: true })) {
+    game.move({ from: move.from, to: move.to, promotion: move.promotion });
+  }
+  const result = game.isCheckmate() ? (game.turn() === 'w' ? '0-1' : '1-0')
+    : game.isDraw() ? '1/2-1/2' : '*';
+  game.setHeader('Result', result);
+  const blob = new Blob([game.pgn() + '\n'], { type: 'application/x-chess-pgn;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'game.pgn';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function maybeMarkPositionSolved() {
   if (state.sessionMode !== 'blind-puzzles' || state.blindPuzzles.mode !== 'position') {
     return;
@@ -7004,7 +7049,7 @@ function onBoardMove(from, to) {
 }
 
 function isUserTurn() {
-  if (state.sessionMode === 'puzzle') {
+  if (state.sessionMode === 'puzzle' || state.sessionMode === 'follow-record') {
     return true;
   }
   if (state.sessionMode === 'follow-game') {
@@ -7670,6 +7715,7 @@ function updateMainControlsVisibility() {
   const inPuzzle = state.sessionMode === 'puzzle';
   const inBlind = state.sessionMode === 'blind-puzzles';
   const inFollow = state.sessionMode === 'follow-game';
+  const inFollowRecording = state.sessionMode === 'follow-record';
   const blindStructuredLastMove = isBlindStructuredLastMoveMode();
   const hideDisplayMode = (inBlind && ['square-colors', 'squares'].includes(state.blindPuzzles.mode))
     || isPositionRecallMode();
@@ -7686,6 +7732,7 @@ function updateMainControlsVisibility() {
     && (state.sessionMode === 'puzzle'
       || state.sessionMode === 'game'
       || inBlindGame
+      || inFollowRecording
       || inFollowQuiz)
     && (state.sessionMode !== 'game' || state.gameStarted)
     && (state.sessionMode === 'puzzle' || isUserTurn());
@@ -8699,6 +8746,8 @@ elements.followRandomBtn.addEventListener('click', () => {
 elements.followUploadBtn.addEventListener('click', () => {
   elements.followUploadInput.click();
 });
+elements.followNewGameBtn.addEventListener('click', startFollowRecording);
+elements.followSavePgnBtn.addEventListener('click', saveFollowRecording);
 elements.followUploadInput.addEventListener('change', async () => {
   const input = elements.followUploadInput;
   const file = input.files?.[0];
